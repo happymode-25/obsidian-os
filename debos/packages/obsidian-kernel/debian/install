@@ -1,1 +1,3 @@
-usr/share/doc/obsidian-kernel/*
+# obsidian-kernel binary is produced by the CI build-kernel job
+# (scripts/build-kernel.sh). This placeholder has no payload files;
+# the control file is kept so the skeleton can be dpkg-built and indexed.

@@ -57,6 +57,7 @@ jobs:
           retention-days: 1
 
   # ---- 1b. hardened kernel .deb (linux source + Obsidian fragment) --------
+  # Independent gate for now; ISO wiring lands at M3 (needs per-build version).
   build-kernel:
     needs: validate
     runs-on: ubuntu-24.04
@@ -73,7 +74,7 @@ jobs:
 
   # ---- 2. build the ISO per flavor in the debos container ----------------
   build-iso:
-    needs: [build-packages, build-kernel]
+    needs: build-packages
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -86,13 +87,6 @@ jobs:
         with:
           name: obs-repo
           path: repo
-      - name: Download kernel debs
-        uses: actions/download-artifact@v4
-        with:
-          name: obs-repo-kernel
-          path: kernel
-      - name: Merge kernel debs into repo
-        run: cp kernel/*.deb repo/
       - name: Install QEMU (boot test side)
         run: |
           sudo apt-get update
@@ -108,7 +102,6 @@ jobs:
             -w /obsidian \
             ghcr.io/go-debos/debos:v1.1.16 \
             -t flavor:${{ matrix.flavor }} \
-            -t kernel:obsidian \
             debos/obsidian.yaml
       - name: QEMU boot smoke test
         run: |

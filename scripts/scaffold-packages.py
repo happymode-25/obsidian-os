@@ -5,18 +5,23 @@ Emits the debian/ tree for every obsidian-* metapackage that the debos
 recipes and profile scripts depend on (see `debos/packages/README.md`),
 so the CI `build-packages` job can `dpkg-buildpackage` them all.
 
-Run:  python3 scripts/scaffold-packages.py          # pylint: disable=all
-Existing packages are left untouched (obsidian-core already has a bespoke
-payload): only missing ones are created.
+Run:  python3 scripts/scaffold-packages.py
+Existing packages are not overwritten — missing files (changelog, rules,
+install, payload) are created idempotently.
 """
 import os
-import sys
+from email.utils import formatdate
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PKG_DIR = os.path.join(ROOT, "debos", "packages")
+VERSION = "0.1.0-1"
 
 # name -> (description, depends-list)
 PACKAGES = {
+    "obsidian-core": (
+        "Obsidian OS core: posture, firstboot hooks, /etc/obsidian defaults",
+        ["bash", "systemd", "nftables"],
+    ),
     "obsidianwm": (
         "ObsidianWM compositor (wlroots fork) + session files",
         ["wlroots", "xwayland", "foot", "libinput10", "swaybg", "bemenu"],
@@ -62,11 +67,15 @@ PACKAGES = {
         "reads manifests/tools.yaml, materializes the tool registry (NO offensive tools)",
         ["obsidian-security-center", "git", "curl"],
     ),
+    "obsidian-kernel": (
+        "obsidian-kernel placeholder (binary built by CI build-kernel job; Provides linux-image-amd64)",
+        ["debian-archive-keyring"],
+    ),
 }
 
 RULES = """#!/usr/bin/make -f
 %:
-	dh $@
+\tdh $@
 """
 
 CONTROL = """Source: {name}
@@ -83,41 +92,72 @@ Depends: {deps},
 Description: {desc}
 """
 
+CHANGELOG = """{name} ({version}) unstable; urgency=medium
+
+  * Phase 1 / Foundry: metapackage scaffold.
+
+ -- Obsidian OS <obsidian@localhost>  {date}
+"""
+
 INSTALL = "usr/share/obsidian/meta/*\n"
 
 
-def scaffold(name, desc, deps):
+def write_file(path, content, mode=None):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(content)
+    if mode is not None:
+        os.chmod(path, mode)
+
+
+def ensure_package(name, desc, deps):
+    """Create anything a package dir is missing. Returns (action, kind)."""
     base = os.path.join(PKG_DIR, name)
     debian = os.path.join(base, "debian")
     payload = os.path.join(base, "usr", "share", "obsidian", "meta", name)
-    os.makedirs(debian, exist_ok=False)
+    os.makedirs(debian, exist_ok=True)
     os.makedirs(payload, exist_ok=True)
-    dep_line = ",\n".join("         " + d for d in deps)
-    with open(os.path.join(debian, "control"), "w", encoding="utf-8") as fh:
-        fh.write(CONTROL.format(name=name, desc=desc, deps=dep_line))
-    with open(os.path.join(debian, "rules"), "w", encoding="utf-8",
-              newline="") as fh:
-        fh.write(RULES)
-    os.chmod(os.path.join(debian, "rules"), 0o755)
-    with open(os.path.join(debian, "install"), "w", encoding="utf-8") as fh:
-        fh.write(INSTALL)
-    with open(os.path.join(payload, "README.txt"), "w", encoding="utf-8") as fh:
-        fh.write(f"{name}: Obsidian OS metapackage payload (build-time placeholder).\n")
-    return name
+
+    made = []
+    ctl = os.path.join(debian, "control")
+    if not os.path.exists(ctl):
+        dep_line = ",\n".join("         " + d for d in deps)
+        write_file(ctl, CONTROL.format(name=name, desc=desc, deps=dep_line))
+        made.append("control")
+    rules = os.path.join(debian, "rules")
+    if not os.path.exists(rules):
+        write_file(rules, RULES, mode=0o755)
+        made.append("rules")
+    elif not os.access(rules, os.X_OK):
+        os.chmod(rules, 0o755)
+    inst = os.path.join(debian, "install")
+    if not os.path.exists(inst):
+        write_file(inst, INSTALL)
+        made.append("install")
+    clog = os.path.join(debian, "changelog")
+    if not os.path.exists(clog):
+        write_file(clog, CHANGELOG.format(
+            name=name, version=VERSION,
+            date=formatdate(localtime=True)))
+        made.append("changelog")
+    pay = os.path.join(payload, "README.txt")
+    if not os.path.exists(pay):
+        write_file(pay, f"{name}: Obsidian OS metapackage payload (build-time placeholder).\n")
+        made.append("payload")
+    return made
 
 
 def main():
-    made, kept = [], []
+    new_made, ensured = [], []
     for name, (desc, deps) in sorted(PACKAGES.items()):
-        debian = os.path.join(PKG_DIR, name, "debian")
-        if os.path.exists(debian):
-            kept.append(name)
-            continue
-        made.append(scaffold(name, desc, deps))
-    print("scaffolded: " + ", ".join(made) if made else "none new")
-    if kept:
-        print("kept existing: " + ", ".join(kept))
-    print(f"total packages: {len(made) + len(kept)}")
+        if not os.path.exists(os.path.join(PKG_DIR, name, "debian")):
+            new_made.append(name)
+        made = ensure_package(name, desc, deps)
+        if made:
+            ensured.append(f"{name}({','.join(made)})")
+    print("new packages: " + (", ".join(new_made) if new_made else "none"))
+    print("ensured files: " + (", ".join(ensured) if ensured else "all present"))
+    print(f"total packages: {len(PACKAGES)}")
 
 
 if __name__ == "__main__":

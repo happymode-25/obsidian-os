@@ -33,14 +33,7 @@ if [ -f /etc/debian_version ]; then
     build-essential dpkg-dev fakeroot rsync flex bison \
     libssl-dev libelf-dev dwarves gcc-x86-64-linux-gnu \
     debhelper debian-keyring
-  if command -v apt-get >/dev/null; then
-    # ensure deb-src available for `apt-get source linux`
-    if ! grep -q '^deb-src' /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null; then
-      sudo sed -i 's/^deb /deb-src /' /etc/apt/sources.list 2>/dev/null || true
-      sudo apt-get update -qq || true
-    fi
   fi
-fi
 
 # ---- 1. acquire source ------------------------------------------------------
 BUILD_DIR="$(mktemp -d /tmp/obs-kernel-XXXXXX)"
@@ -48,11 +41,29 @@ if [ -n "$SRCDIR" ]; then
   say "using provided source: $SRCDIR"
   rsync -a --exclude='.git' "$SRCDIR"/ "$BUILD_DIR/linux/"
 else
-  say "fetching Debian linux source (trixie)…"
+  # GitHub runners are Ubuntu and have no Debian deb-src entries, so point apt
+  # at an explicit Debian trixie deb-src list. --allow-unauthenticated keeps
+  # this portable across hosts; a real Debian host may drop it.
+  DEBSRC="$(mktemp /tmp/obs-debsrc-XXXX.list)"
+  cat > "$DEBSRC" <<'EOF'
+deb-src http://deb.debian.org/debian trixie main
+deb-src http://security.debian.org/debian-security trixie-security main
+EOF
+  say "fetching Debian linux source (trixie) via explicit deb-src entries…"
   mkdir -p "$BUILD_DIR/src"
-  ( cd "$BUILD_DIR/src" && apt-get source linux )            # needs deb-src
-  d="$(find "$BUILD_DIR/src" -maxdepth 1 -type d -name 'linux-*' | head -1)"
-  [ -n "$d" ] || die "no linux source unpacked (is deb-src enabled?)"
+  (
+    cd "$BUILD_DIR/src" \
+    && apt-get --allow-unauthenticated \
+               -o Dir::Etc::sourcelist="$DEBSRC" \
+               -o Dir::Etc::sourceparts=- \
+               -o APT::Get::List-Cleanup=0 update -qq \
+    && apt-get --allow-unauthenticated \
+               -o Dir::Etc::sourcelist="$DEBSRC" \
+               -o Dir::Etc::sourceparts=- \
+               -o APT::Get::List-Cleanup=0 source linux
+  )
+  d="$(find "$BUILD_DIR/src" -maxdepth 1 -type d -name 'linux-[0-9]*' | head -1)"
+  [ -n "$d" ] || die "no linux source unpacked (apt-get source failed?)"
   mv "$d" "$BUILD_DIR/linux"
 fi
 
