@@ -1,0 +1,74 @@
+#!/bin/sh
+# Obsidian OS — block published personal metadata.
+#
+# The repository is public. Commit metadata is published permanently and cannot
+# be removed from forks, caches, or the GitHub API once pushed, so the check has
+# to happen BEFORE the objects leave this machine.
+#
+# Rule: every outgoing commit must use the canonical identity and the neutral
+# epoch date. Anything else carries a real person's name, email, timezone, or
+# working hours into public history.
+#
+# Escape hatch (deliberate, so a legitimate exception is not blocked forever):
+#   ALLOW_DATED_COMMITS=1 git push ...
+#
+# Install: cp scripts/git-hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+
+CANON_NAME="Obsidian OS"
+CANON_EMAIL="obsidian@localhost"
+# %aI/%cI render UTC as "...Z" rather than "+0000"; compare the timestamp
+# prefix so either spelling of the neutral date is accepted.
+NEUTRAL_DATE="1970-01-01T00:00:00"
+
+if [ "${ALLOW_DATED_COMMITS:-0}" = "1" ]; then
+  echo "pre-push: ALLOW_DATED_COMMITS=1, skipping metadata check" >&2
+  exit 0
+fi
+
+fail=0
+zero=$(git hash-object -t tree /dev/null 2>/dev/null)
+
+if [ -n "$zero" ]; then
+  # Commits reachable from the refs being pushed, excluding what the remote has.
+  while read -r local_ref local_sha remote_ref remote_sha; do
+    case "$local_sha" in
+      0000000000000000000000000000000000000000) continue ;;
+    esac
+    if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+      range="$local_sha"
+    else
+      range="$remote_sha..$local_sha"
+    fi
+
+    bad=$(git log --format='%H%x09%an%x09%ae%x09%cn%x09%ce%x09%aI%x09%cI' $range 2>/dev/null | awk -F'\t' \
+      -v n="$CANON_NAME" -v e="$CANON_EMAIL" -v d="$NEUTRAL_DATE" '
+        $2 != n || $3 != e || $4 != n || $5 != e || index($6, d) != 1 || index($7, d) != 1 { print $1 }')
+
+    for c in $bad; do
+      subj=$(git log -1 --format='%s' "$c")
+      printf 'pre-push: %s "%s"\n' "$(git rev-parse --short "$c")" "$subj" >&2
+      printf '          author=%s <%s> %s\n' \
+        "$(git log -1 --format=%an "$c")" "$(git log -1 --format=%ae "$c")" "$(git log -1 --format=%aI "$c")" >&2
+      fail=1
+    done
+  done
+fi
+
+if [ "$fail" -ne 0 ]; then
+  cat >&2 <<'EOF'
+
+pre-push: BLOCKED — commit metadata is not anonymised.
+
+Public history must use:
+  author/committer  Obsidian OS <obsidian@localhost>
+  date              1970-01-01T00:00:00+0000
+
+Fix the commits (oldest first), or run scripts/anonymise-history.sh to rewrite
+the whole branch. To push anyway for a deliberate exception:
+
+  ALLOW_DATED_COMMITS=1 git push
+EOF
+  exit 1
+fi
+
+exit 0
