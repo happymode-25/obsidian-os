@@ -1,0 +1,16 @@
+Source: obsidian-security-center
+Section: metapackages
+Priority: optional
+Maintainer: Obsidian OS <obsidian@localhost>
+Standards-Version: 4.7.0
+Build-Depends: debhelper-compat (= 13)
+
+Package: obsidian-security-center
+Architecture: all
+Depends:          obsidian-apps,
+         nftables,
+         aide,
+         suricata,
+         libnftables1,
+         ${misc:Depends}
+Description: securityd daemon + GTK4 Security Center + securityctl CLI

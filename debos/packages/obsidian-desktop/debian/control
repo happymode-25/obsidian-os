@@ -1,0 +1,16 @@
+Source: obsidian-desktop
+Section: metapackages
+Priority: optional
+Maintainer: Obsidian OS <obsidian@localhost>
+Standards-Version: 4.7.0
+Build-Depends: debhelper-compat (= 13)
+
+Package: obsidian-desktop
+Architecture: all
+Depends:          obsidianwm,
+         obsidian-panel,
+         obsidian-apps,
+         pipewire,
+         wireplumber,
+         ${misc:Depends}
+Description: Obsidian desktop session (wm + panel + apps + lite fallback)

@@ -1,0 +1,14 @@
+Source: obsidian-ai
+Section: metapackages
+Priority: optional
+Maintainer: Obsidian OS <obsidian@localhost>
+Standards-Version: 4.7.0
+Build-Depends: debhelper-compat (= 13)
+
+Package: obsidian-ai
+Architecture: all
+Depends:          ollama,
+         gtk4,
+         libadwaita-1-0,
+         ${misc:Depends}
+Description: obsidian-ai DBus service, assistant sidebar, obsidianai CLI

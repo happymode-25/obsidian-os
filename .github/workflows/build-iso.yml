@@ -13,13 +13,29 @@ on:
         default: all
 
 jobs:
+  # ---- 0. static gate (docs/PLAN.md Phase 0 criterion) -------------------
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PyYAML
+        run: python3 -m pip install pyyaml
+      - name: Phase 0/1 static gate (bash -n runs natively here)
+        run: python3 scripts/validate-phase0.py
+
   # ---- 1. build the obsidian-* metapackages from debos/packages ---------
   build-packages:
+    needs: validate
     runs-on: ubuntu-24.04
     outputs:
       repo: ${{ steps.repo.outputs.repo }}
     steps:
       - uses: actions/checkout@v4
+      - name: Scaffold metapackage skeletons
+        run: python3 scripts/scaffold-packages.py
       - name: Build .deb metapackages
         run: |
           sudo apt-get update
@@ -75,7 +91,8 @@ jobs:
         run: |
           ISO="$(ls output/obsidian-${{ matrix.flavor }}-*.iso | head -1)"
           echo "testing: $ISO"
-          bash tests/boottest.sh "$ISO" "obsidian.target reached" 300
+          bash tests/boottest.sh "$ISO" "obsidian.target reached" 300 \
+            "nftables: ruleset loaded" "securityctl: posture" "firstboot ready"
       - name: Upload ISO
         uses: actions/upload-artifact@v4
         with:

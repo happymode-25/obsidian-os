@@ -1,0 +1,19 @@
+Source: obsidian-server-server
+Section: metapackages
+Priority: optional
+Maintainer: Obsidian OS <obsidian@localhost>
+Standards-Version: 4.7.0
+Build-Depends: debhelper-compat (= 13)
+
+Package: obsidian-server-server
+Architecture: all
+Depends:          caddy,
+         nginx-light,
+         postgresql,
+         podman,
+         samba,
+         nfs-kernel-server,
+         libvirt-daemon-system,
+         netdata,
+         ${misc:Depends}
+Description: Server roles template + serverctl (web/db/containers/nas/vm/proxy/ssh/dns/router)

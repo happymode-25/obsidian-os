@@ -1,0 +1,14 @@
+Source: obsidian-agent-cli
+Section: metapackages
+Priority: optional
+Maintainer: Obsidian OS <obsidian@localhost>
+Standards-Version: 4.7.0
+Build-Depends: debhelper-compat (= 13)
+
+Package: obsidian-agent-cli
+Architecture: all
+Depends:          obsidian-ai,
+         python3,
+         podman,
+         ${misc:Depends}
+Description: obsidian-agentd orchestrator + automation/security/osint/sysadmin/coding agents

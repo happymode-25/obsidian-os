@@ -11,7 +11,7 @@ from the local repo.
 |---|---|---|
 | `obsidian-core` | versions lock, `/etc/obsidian` skeleton, posture defaults | base systemd, cryptsetup, nftables, apparmor, zram-tools |
 | `obsidian-kernel` | rebuilt hardened `linux-image` (CI kernel job) | — |
-| `obsidian-wm` | ObsidianWM compositor + session files | wlroots, xwayland, foot |
+| `obsidianwm` | ObsidianWM compositor + session files | wlroots, xwayland, foot |
 | `obsidian-panel` | GTK4 layer-shell Start/taskbar/tray | gtk4-layer-shell, libadwaita |
 | `obsidian-apps` | Files, Settings, Store, Firewall UI, Server Hub, VM Manager | gtk4, libadwaita, pcmanfm-backends, libvirt … |
 | `obsidian-security-center` | `securityd` daemon + GTK4 Security Center + `securityctl` | `obsidian-apps`, rust toolchain (build-only) |
@@ -23,6 +23,7 @@ from the local repo.
 | `obsidian-ghost` | Ghost payloads (volatile journal, memwipe hook, Tor nm-dispatch, vault) | tor, macchanger, veracrypt |
 | `obsidian-tool-bootstrap` | `manifests/tools.yaml` + acquisition plumbing (NOT the tools) | security-center |
 | `obsidian-live-usb` | Ventoy/miniboot live-USB maker (`scripts/usb-maker`) | ventoy |
+| `obsidian-installer` | Calamares guided installer (LUKS2, systemd-boot, SB) | calamares, cryptsetup, sbctl |
 
 ## Skeleton example — `obsidian-core`
 

@@ -1,0 +1,15 @@
+Source: obsidian-apps-extra
+Section: metapackages
+Priority: optional
+Maintainer: Obsidian OS <obsidian@localhost>
+Standards-Version: 4.7.0
+Build-Depends: debhelper-compat (= 13)
+
+Package: obsidian-apps-extra
+Architecture: all
+Depends:          libreoffice,
+         gimp,
+         vlc,
+         obsidian-store,
+         ${misc:Depends}
+Description: Extra bundled desktop apps: office, media, store favourites

@@ -76,6 +76,13 @@ REQUIRED = [
     "apps/ai-assistant/README.md",
     "debos/packages/obsidian-core/debian/control",
     "debos/packages/obsidian-core/debian/rules",
+    "debos/packages/obsidianwm/debian/control",
+    "debos/installer/settings.conf",
+    "debos/installer/modules/partition.conf",
+    "debos/installer/modules/bootloader.conf",
+    "debos/installer/modules/users.conf",
+    "scripts/scaffold-packages.py",
+    "scripts/boot-keys.sh",
     "tests/boottest.sh",
     ".github/workflows/build-iso.yml",
     "LICENSE",
@@ -93,7 +100,10 @@ yaml_files = []
 for base, dirs, files in os.walk(ROOT):
     dirs[:] = [d for d in dirs if d not in (".git", "node_modules")]
     yaml_files += [
-        os.path.join(base, f) for f in files if f.endswith((".yaml", ".yml"))
+        os.path.join(base, f)
+        for f in files
+        if f.endswith((".yaml", ".yml"))
+        or ("installer" in base.replace("\\", "/") and f.endswith(".conf"))
     ]
 
 for path in sorted(yaml_files):

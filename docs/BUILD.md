@@ -68,8 +68,10 @@ bash tests/boottest.sh output/obsidian-daily-trixie-amd64.iso "obsidian.target r
 ```
 
 `tests/boottest.sh` boots the ISO headless, captures the serial console to a log,
-and exits 0 when the configured marker appears (default `obsidian.target
-reached`), 1 on timeout. Expected before that marker:
+and exits 0 when the primary marker and any extra markers appear (default
+`obsidian.target reached`; CI also asserts `nftables: ruleset loaded`,
+`securityctl: posture`, `firstboot ready`), 1 on timeout. Expected before the
+markers:
 
 - firewall table loaded (`nft -c` result logged at boot)
 - `securityctl status` answers (posture reflects the flavor)

@@ -1,0 +1,17 @@
+Source: obsidian-ghost
+Section: metapackages
+Priority: optional
+Maintainer: Obsidian OS <obsidian@localhost>
+Standards-Version: 4.7.0
+Build-Depends: debhelper-compat (= 13)
+
+Package: obsidian-ghost
+Architecture: all
+Depends:          tor,
+         torsocks,
+         obfs4proxy,
+         macchanger,
+         veracrypt,
+         secure-delete,
+         ${misc:Depends}
+Description: Ghost (privacy-max) payloads: volatile journal, memwipe, Tor nm-dispatch, vault

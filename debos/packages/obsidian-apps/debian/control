@@ -1,0 +1,15 @@
+Source: obsidian-apps
+Section: metapackages
+Priority: optional
+Maintainer: Obsidian OS <obsidian@localhost>
+Standards-Version: 4.7.0
+Build-Depends: debhelper-compat (= 13)
+
+Package: obsidian-apps
+Architecture: all
+Depends:          gtk4,
+         libadwaita-1-0,
+         flatpak,
+         libvirt-daemon-system,
+         ${misc:Depends}
+Description: Obsidian Apps: Files, Settings, Store, Firewall UI, Server Hub, VM Manager

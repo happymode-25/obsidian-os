@@ -1,0 +1,14 @@
+Source: obsidian-tool-bootstrap
+Section: metapackages
+Priority: optional
+Maintainer: Obsidian OS <obsidian@localhost>
+Standards-Version: 4.7.0
+Build-Depends: debhelper-compat (= 13)
+
+Package: obsidian-tool-bootstrap
+Architecture: all
+Depends:          obsidian-security-center,
+         git,
+         curl,
+         ${misc:Depends}
+Description: reads manifests/tools.yaml, materializes the tool registry (NO offensive tools)

@@ -13,7 +13,7 @@ pacman -S --noconfirm --needed \
 # desktop: Obsidian metapackages come from the seeded obsidian repo.
 if grep -q '^\[obsidian\]' /etc/pacman.conf 2>/dev/null; then
   pacman -S --noconfirm --needed \
-    obsidian-core obsidian-wm obsidian-panel obsidian-apps \
+    obsidian-core obsidianwm obsidian-panel obsidian-apps \
     || echo "obsidian repo not (yet) mirrored — desktop installed manually." >&2
 fi
 
