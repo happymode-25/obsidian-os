@@ -364,9 +364,20 @@ fi
 [ -n "$OFD_SHIM" ] && log "  OFD-lock shim removed from the image (verified absent)"
 
 # The chroot gets a working resolver. mmdebstrap/debootstrap leave a
-# resolv.conf that is either absent or copied from the build host, and on a
-# build host with an IPv6-only or stub-resolved configuration that means every
-# in-chroot apt call silently fails to resolve.
+# resolv.conf that is either absent, a plain file, or a symlink to a
+# systemd-resolved path (e.g. /run/systemd/resolve/stub-resolv.conf) that does
+# not exist inside the build tree. On a build host with an IPv6-only or
+# stub-resolved configuration that means every in-chroot apt call silently
+# fails to resolve.
+#
+# A dangling symlink must be replaced before copying: GNU cp refuses to write
+# through one ("not writing through dangling symlink"), and that error killed
+# the first successful bootstrap - the log read `cp: not writing through
+# dangling symlink '.../etc/resolv.conf'` and the build exited 1 with the image
+# half-assembled.
+if [ -L "$CHROOT/etc/resolv.conf" ]; then
+  rm -f "$CHROOT/etc/resolv.conf"
+fi
 if [ -f /etc/resolv.conf ] && ! grep -q '^nameserver' "$CHROOT/etc/resolv.conf" 2>/dev/null; then
   cp -f /etc/resolv.conf "$CHROOT/etc/resolv.conf"
   log "  copied host resolv.conf into the chroot"
