@@ -590,10 +590,15 @@ log "building ISO: $ISO_NAME"
 # Do NOT pipe grub-mkrescue through sed and then check the pipeline status: with
 # a pipe, `$?` is sed's status, so a failed ISO build would print as success.
 MKR_LOG="$WORK/grub-mkrescue.log"
+# NOTE: no `--locales=...`. That flag embeds a specific GRUB translation and
+# fails with `grub-mkrescue: error: cannot find locale` when the build host has
+# not generated that exact locale (Ubuntu generates en_US.utf8, GRUB wants
+# en_US.UTF-8, and a chroot/en_US.* dir may not exist at all). Without the
+# flag GRUB embeds whatever locales exist and uses English otherwise; the
+# image is unchanged.
 if ! grub-mkrescue \
       --output="$OUT_DIR/$ISO_NAME" \
       --volid="OBSIDIAN" \
-      --locales=en_US.UTF-8 \
       "$STAGE" > "$MKR_LOG" 2>&1; then
   sed 's/^/    /' "$MKR_LOG" >&2
   die "grub-mkrescue failed (full log: $MKR_LOG)"
