@@ -155,6 +155,9 @@ The git history uses one canonical committer identity, so attribution lives in
 [`CONTRIBUTORS.md`](CONTRIBUTORS.md); add changes through a PR (rules in
 [`CONTRIBUTING.md`](CONTRIBUTING.md)).
 
+The multi-agent pentest/VA harness (the former `redteam-agents/` folder) is now
+its own project and repo: <https://github.com/happymode-25/redteam-agents>.
+
 ---
 
 > **Legal.** This project ships offensive/dual-use tooling *disabled* and gated by
