@@ -70,6 +70,26 @@ function Write-Info($m) { Write-Host "  $m" }
 function Write-Ok($m)   { Write-Host "  ok      $m" -ForegroundColor Green }
 function Write-Miss($m)  { Write-Host "  MISSING $m" -ForegroundColor Red }
 
+# Read the serial log even while QEMU holds it open for writing.
+# [System.IO.File]::ReadAllText opens with FileShare.Read, which throws
+# IOException while QEMU's `-serial file:` handle is alive (seen in the field:
+# the whole test aborted mid-watch, leaving QEMU orphaned). Opening with
+# FileShare.ReadWrite lets us poll a live log. Any IO failure is treated as a
+# transient read (return '') rather than an abort; the caller retries.
+function Read-SerialLog([string]$Path) {
+    try {
+        $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open,
+                                     [System.IO.FileAccess]::Read,
+                                     [System.IO.FileShare]::ReadWrite)
+        try {
+            $sr = [System.IO.StreamReader]::new($fs)
+            try { return $sr.ReadToEnd() } finally { $sr.Dispose() }
+        } finally { $fs.Dispose() }
+    } catch {
+        return ''
+    }
+}
+
 # --- prerequisites --------------------------------------------------------- #
 
 if (-not (Test-Path -LiteralPath $Iso)) {
@@ -219,8 +239,8 @@ while ((Get-Date) -lt $deadline) {
     # Re-reading the whole log every 2s is fine at this size and avoids the
     # half-written-line races you get from holding a file handle open.
     if (Test-Path -LiteralPath $log) {
-        $raw = [System.IO.File]::ReadAllText($log)
-        if ($raw.Contains('OBSIDIAN-OS-READY')) { $ready = $true; break }
+        $raw = Read-SerialLog $log
+        if ($raw -and $raw.Contains('OBSIDIAN-OS-READY')) { $ready = $true; break }
     }
     Start-Sleep -Seconds 2
 }
@@ -234,9 +254,7 @@ if (-not $proc.HasExited) {
 # --- evaluate ---------------------------------------------------------------- #
 
 $fail = $false
-$logText = if (Test-Path -LiteralPath $log) {
-    [System.IO.File]::ReadAllText($log)
-} else { '' }
+$logText = if (Test-Path -LiteralPath $log) { Read-SerialLog $log } else { '' }
 
 if (-not $ready) {
     Write-Host "boottest: FAIL - never saw OBSIDIAN-OS-READY within ${Timeout}s" -ForegroundColor Red

@@ -535,7 +535,16 @@ mkdir -p "$STAGE/live"
 mksquashfs "$CHROOT" "$STAGE/live/filesystem.squashfs" \
   -comp zstd -Xcompression-level 15 -b 1M -noappend -no-progress \
   -processors "$BUILD_JOBS" \
-  -e boot dev proc sys run tmp var/tmp
+  -e boot
+# Do NOT exclude dev/proc/sys/run/tmp from the squashfs: live-boot overlays
+# this tree onto /root, and the initramfs tail then does
+#   mount -o move /dev|/run|/sys|/proc "${rootmnt}/..." &&
+#   exec run-init ... <"${rootmnt}/dev/console"
+# All five must exist as (possibly empty) directories in the rootfs or the
+# move fails, /dev/console cannot be opened, and /init panics. Discovered the
+# hard way: daily build 122313 panicked with "mount: /root/dev: mount point
+# does not exist" until these were included. Debian live images ship them.
+# /boot stays excluded: the kernel+initrd are already staged under /live/.
 
 # --------------------------------------------------------------------------- #
 # 9. stage kernel + initrd

@@ -1,0 +1,13 @@
+# Obsidian OS - /etc/os-release. Overwrites the base-files copy so systemd's
+# boot banner and every PRETTY_NAME consumer identify this as Obsidian OS and
+# not vanilla Debian. The base is still declared honestly via ID_LIKE=debian.
+# (The boot gate forbids the stock Debian welcome banner precisely so a build
+# that silently substituted a vanilla Debian ISO cannot pass.)
+PRETTY_NAME="Obsidian OS (trixie)"
+NAME="Obsidian OS"
+ID=obsidian
+ID_LIKE=debian
+VERSION_ID="13"
+VERSION="13 (trixie)"
+VERSION_CODENAME=trixie
+ANSI_COLOR="1;34"
