@@ -6,6 +6,7 @@
 *.tar.xz
 *.tar.gz
 debos/overlays/*.tar
+debos/overlays-src/common/obsrepo/
 debos/packages/*.deb
 archiso/work/
 kernel-out/

@@ -48,7 +48,7 @@ PACKAGES = {
     ),
     "obsidian-ai": (
         "obsidian-ai DBus service, assistant sidebar, obsidianai CLI",
-        ["ollama", "gtk4", "libadwaita-1-0"],
+        ["gtk4", "libadwaita-1-0"],
     ),
     "obsidian-agent-cli": (
         "obsidian-agentd orchestrator + automation/security/osint/sysadmin/coding agents",
@@ -56,12 +56,12 @@ PACKAGES = {
     ),
     "obsidian-ghost": (
         "Ghost (privacy-max) payloads: volatile journal, memwipe, Tor nm-dispatch, vault",
-        ["tor", "torsocks", "obfs4proxy", "macchanger", "veracrypt", "secure-delete"],
+        ["tor", "torsocks", "obfs4proxy", "macchanger"],
     ),
     "obsidian-server-server": (
         "Server roles template + serverctl (web/db/containers/nas/vm/proxy/ssh/dns/router)",
         ["caddy", "nginx-light", "postgresql", "podman",
-         "samba", "nfs-kernel-server", "libvirt-daemon-system", "netdata"],
+         "samba", "nfs-kernel-server", "libvirt-daemon-system"],
     ),
     "obsidian-tool-bootstrap": (
         "reads manifests/tools.yaml, materializes the tool registry (NO offensive tools)",

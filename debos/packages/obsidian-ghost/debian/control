@@ -11,7 +11,6 @@ Depends:          tor,
          torsocks,
          obfs4proxy,
          macchanger,
-         veracrypt,
-         secure-delete,
          ${misc:Depends}
+Recommends: veracrypt, secure-delete   # not in trixie main; bootstrap provides (consent-gated)
 Description: Ghost (privacy-max) payloads: volatile journal, memwipe, Tor nm-dispatch, vault

@@ -20,6 +20,17 @@ actions:
     mirror: https://deb.debian.org/debian
     variant: minbase
 
+  # ---- overlays land before any apt step: common carries the local obsidian
+  # repo (built by CI build-packages) as /obsrepo + its apt source entry. ----
+  - action: unpack
+    file: overlays/common.tar
+  - action: unpack
+    file: overlays/{{ $profile }}.tar
+
+  # refresh lists now that obsidian-local (file:/obsrepo ./) is present
+  - action: run
+    script: ../scripts/apt-update.sh
+
   # ---- base system (kernel + boot chain) --------------------------------
   - action: apt
     packages:
@@ -62,12 +73,6 @@ actions:
   - action: run
     script: ../scripts/apply-profile.sh
     args: {{ $profile }}
-
-  # ---- security overlays ---------------------------------------------------
-  - action: unpack
-    file: overlays/common.tar
-  - action: unpack
-    file: overlays/{{ $profile }}.tar
 
   # ---- enable network + console on boot for the live session ---------------
   - action: run

@@ -84,6 +84,8 @@ REQUIRED = [
     "scripts/scaffold-packages.py",
     "scripts/boot-keys.sh",
     "scripts/build-kernel.sh",
+    "scripts/apt-update.sh",
+    "debos/overlays-src/common/etc/apt/sources.list.d/obsidian-local.list",
     "debos/packages/obsidian-kernel/debian/control",
     "debos/overlays-src/common/etc/obsidian/kernel/hardened.config",
     "tests/boottest.sh",

@@ -1,0 +1,3 @@
+# Obsidian OS local metapackage repo — staged into the common overlay by CI
+# (build-iso: "Stage local repo + build overlays") as /obsrepo (Packages.gz + debs).
+deb [trusted=yes] file:/obsrepo ./
