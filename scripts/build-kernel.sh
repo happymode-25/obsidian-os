@@ -123,7 +123,7 @@ if [ -f /etc/os-release ] && grep -qiE 'debian|ubuntu' /etc/os-release; then
   "${SUDO[@]}" apt-get update -qq
   "${SUDO[@]}" apt-get install -y -qq \
     build-essential dpkg-dev fakeroot rsync flex bison bc \
-    libssl-dev libelf-dev dwarves openssl
+    libssl-dev libelf-dev dwarves openssl debhelper
 fi
 
 # ---- 1. acquire source -----------------------------------------------------
@@ -292,11 +292,21 @@ say "building with make -j$JOBS bindeb-pkg (source version $PKGVER)…"
 # real toolchain (make, gcc, dpkg-dev, libssl-dev, …) is fully installed above
 # and mkdebian's debian/rules builds via the kernel's own Makefile, not dh_*.
 # DPKG_FLAGS=-d is the packaging's supported hook to skip this auto check.
-make -j"$JOBS" bindeb-pkg \
+# Output is CAPTURED, never discarded. A silent build that hangs is
+# indistinguishable from a healthy one (we lost days to exactly that), so the
+# console log is written continuously and doubles as the autopilot's
+# liveness/progress signal. On failure its tail is surfaced for diagnosis.
+BPKG_LOG="/root/bindeb-pkg.console.log"
+say "bindeb-pkg console log: $BPKG_LOG (tail -f to watch progress)"
+if ! make -j"$JOBS" bindeb-pkg \
   KDEB_PKGVERSION="${PKGVER}.obsidian" \
   LOCALVERSION=-obsidian-h \
   DPKG_FLAGS=-d \
-  >/dev/null || die "bindeb-pkg failed"
+  >"$BPKG_LOG" 2>&1; then
+  say "--- tail of $BPKG_LOG (last 40 lines) ---" >&2
+  tail -40 "$BPKG_LOG" >&2
+  die "bindeb-pkg failed"
+fi
 
 # ---- 4. collect artifacts ----------------------------------------------------
 # bindeb-pkg drops linux-image-*/linux-headers-*/linux-libc-dev*.deb in ../

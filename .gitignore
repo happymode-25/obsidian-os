@@ -1,42 +1,10 @@
-# —— Obsidian OS .gitignore -------------------------------------------------
-# Build artifacts
-/output/
-*.iso
-*.img
-*.tar.xz
-*.tar.gz
-debos/overlays/*.tar
-debos/overlays-src/common/obsrepo/
-debos/packages/*.deb
-archiso/work/
-kernel-out/
-
-# Python / tooling caches
 __pycache__/
 *.pyc
-.venv/
-node_modules/
+*.pyo
+.pytest_cache/
 
-# Editors / OS
-.vscode/
-.idea/
-*.swp
-.DS_Store
-Thumbs.db
-
-# Local secrets / keys (never commit)
-*.pem
-*.key
-secrets/
-keys/
-JUST-ONCE keys/
-
-# Logs from local runs
-*.log
-journal/
-# Generated verification output (regenerate: python3 scripts/verify-manifest-urls.py)
-manifest-verify-failures.json
-
-# ISO build work tree and output
-build/work/
-build/out/
+# Personal seal ledger and rendered reports.
+.tally/
+*.jsonl
+report.html
+tmp-*.html
