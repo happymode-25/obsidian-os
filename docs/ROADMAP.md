@@ -3,18 +3,24 @@
 > Milestones are outcome-driven (a gate that passes) not date-only. Calendar
 > targets assume a full-time engineer; a small team halves each.
 
-## M0 — Foundry scaffold (Phase 0) — *now*
-**Gate:** this repository — spec, recipes, manifests, profiles, shell, scripts,
-apps design, CI. Static validation green (yamllint, `sh -n`, `nft -c`, JSON/Rust
-compiles).
+## M0 — Foundry scaffold (Phase 0) — **done, but not as reported**
+**Gate:** this repository — spec, manifests, profiles, shell, scripts, apps
+design, CI. Static validation green.
+**Reality:** the ISO recipe could not build and the boot test could not fail.
+Both are replaced; see `docs/GAP-REPORT.md` and `docs/ADR-0001-debos-replacement.md`.
 
-## M1 — Bootable ISO (Phase 1)  ~weeks 2–6
-- debos ISO builds on CI (daily flavor) from `obsidian.yaml`.
-- `obsidian-core` metapackages resolve; first boot reaches `obsidian.target`,
-  shell prompt opens in a terminal.
-- QEMU serial-marker acceptance: firewall table loaded, securityctl answers,
-  `pkg --version` works.
-**Exit:** anyone on Earth runs the ISO on a VM and gets a console.
+## M1 — Bootable ISO (Phase 1) — *in progress*
+- `build/build-iso.sh` produces a real ISO on CI for the `daily` and `ghost`
+  flavors. The pipeline itself is written and has run end-to-end locally.
+- First boot reaches `obsidian.target` and emits the `obsidian-boot-report`
+  markers over serial.
+- `tests/boottest.sh` accepts only an image that emits those markers, and
+  rejects a stock Debian live ISO.
+- **Still open:** the ISO boots the *stock* trixie kernel, so the hardened
+  config is not in effect. The desktop metapackages remain hollow. See
+  `docs/GAP-REPORT.md` §7.
+**Exit:** anyone on Earth boots the ISO on a VM and gets a console *that this
+project can prove is this project's*.
 
 ## M2 — Installer + encryption (Phase 1.4–1.5)  ~weeks 6–10
 - Guided install: LUKS2 (Argon2id) root//home, TPM2 auto-unlock, Secure Boot keys
@@ -57,8 +63,9 @@ report artifact.
   community key ring.
 
 ## Long tail (post-1.0)
-- SELinux alternative MAC; Arch-native flavor parity; 32-bit/i686 build;
-  RISC-V/ARM (Pi/boxes) boards; Qubes-style VM set as default for Pentester 2.0;
+- SELinux alternative MAC; 32-bit/i686 build; RISC-V/ARM (Pi/boxes) boards;
+  *(Arch-native flavor parity is gone — the second base was dropped, ADR-0001)*;
+  Qubes-style VM set as default for Pentester 2.0;
   FIDO2/WebAuthn login; "Ghost hardware" mode for early boot anti-forensics;
   App Store curation review service (community).
 

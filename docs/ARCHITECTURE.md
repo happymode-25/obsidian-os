@@ -56,7 +56,14 @@ Version: 0.1 (Foundry checkpoint) · Authors: Principal OS Architect
 - **Kernel:** `linux-hardened` (Debian source build with hardened baseline: hardened
   allocator, `CONFIG_RANDOMIZE_KSTACK_OFFSET_DEFAULT`, `CONFIG_STRICT_KERNEL_RWX`,
   `CONFIG_SLAB_FREELIST_RANDOM`, `CONFIG_INIT_ON_ALLOC/FREE`, hardened usercopy,
-  `CONFIG_SECURITY_LOCKDOWN_LSM=y`). Arch flavor ships `linux-lts` hardened patchset too.
+  `CONFIG_SECURITY_LOCKDOWN_LSM=y`).
+
+  > **Not yet true of the produced ISO.** `overlays/common/etc/obsidian/kernel/hardened.config`
+  > records the intended config, and `scripts/build-kernel.sh` exists, but no
+  > build step runs it. The ISO currently boots the stock trixie
+  > `linux-image-amd64`, so none of the above hardening is actually in the
+  > kernel. This is the largest remaining architectural gap — see
+  > `docs/GAP-REPORT.md` §7 and `docs/ROADMAP.md`.
 - **Boot:** systemd-boot + **UKI** (`systemd-stub`) so LUKS2 passphrase can be
   integrated; Secure Boot via shim/MOK with user keys; TPM2 measured boot
   (`systemd-measure`) + optional auto-unlock via `systemd-cryptenroll --tpm2-device`.
@@ -82,13 +89,19 @@ UEFI ─▶ shim ─▶ systemd-boot ─▶ UKI (.efi) ─▶ systemd-stub
 
 ## 3. Base distribution & packaging
 
-- **Primary:** Debian trixie (rolling) with `contrib`, `non-free-firmware`.
-- **Secondary (optional):** Arch rootfs via `arch-bootstrap` recipe
-  (`debos/arch/obsidian-arch.yaml`), same overlays, same profiles.
-- **Hybrid feel:** an `obsidian-core` metapackage pins versions; userland packages
-  are resolved by `pkg` through the active channel:
-  `apt` (Debian) / `pacman` (Arch) — one manifest, two backends
-  (see `scripts/pkg` and `docs/UNIFIED-SHELL.md`).
+- **Single base:** Debian trixie with `contrib`, `non-free-firmware`.
+
+  > **A second base was specified and has been dropped.** An earlier revision
+  > of this document called for an optional Arch rootfs via an `arch-bootstrap`
+  > recipe, giving `pkg` two backends (`apt` / `pacman`) behind one manifest.
+  > There is no such hybrid base image, and the Arch recipe was unbuildable for
+  > the same reasons the Debian one was. Decision recorded in
+  > `docs/ADR-0001-debos-replacement.md`. `pkg` is therefore a single-backend
+  > (`apt` + `flatpak`) resolver, and the manifest is not a cross-distro one.
+- **Version pinning:** an `obsidian-core` metapackage is intended to pin
+  versions. It does not exist yet — the `debos/packages/**` dpkg skeletons are
+  hollow (they install a README and nothing else), and the `components.lock`
+  they referenced has been removed. See `docs/ROADMAP.md` Phase 2.
 - **Rolling vs stable:** install-time choice (wizard). Rolling = trixie+SID channel;
   stable = trixie+security freeze. Both share the hardened kernel and overlays.
 

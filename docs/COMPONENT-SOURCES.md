@@ -14,20 +14,21 @@ Layer tags match the architecture layers in `docs/ARCHITECTURE.md`.
 
 | Upstream | Status | How Obsidian uses it | Where |
 |---|---|---|---|
-| **Debian (trixie) + live-build/debos** | ✅ | Primary base; `debos/obsidian.yaml` is the real recipe | `debos/` |
-| **Arch Linux + archiso** | ◐ | Rolling secondary base (`debos/arch/obsidian-arch.yaml`) | `debos/arch/` |
-| **NixOS / nixpkgs** | 🔶 | `nix` as the *package builder* for the GitHub store pipeline (reproducible builds inside Cells) | `docs/UNIFIED-SHELL.md` §3, `scripts/pkg` |
-| Fedora kickstarts / Yocto / Void / Alpine | ⛔ | Not used (Debian primary; Yocto reserved for embedded line-out) | — |
+| **Debian trixie** | ✅ working | Sole base image. Bootstrapped by `mmdebstrap` (preferred) or `debootstrap` | `build/build-iso.sh` |
+| **Arch Linux** | ⛔ dropped | Was specified as a secondary base. There is no such hybrid base image, and the Arch recipe was unbuildable for the same reasons the Debian one was. See `docs/ADR-0001-debos-replacement.md` | — (removed) |
+| **debos / live-build** | ⛔ dropped | Was the build tool. Its `debian-live` action no longer exists upstream and the recipe could never run. Replaced by a plain shell pipeline. Same ADR. | — (removed) |
+| **NixOS / nixpkgs** | 🔶 planned | `nix` as the *package builder* for the GitHub store pipeline (reproducible builds inside Cells). Not started. | `docs/UNIFIED-SHELL.md` §3, `scripts/pkg` |
+| Fedora kickstarts / Yocto / Void / Alpine | ⛔ | Not used (Debian sole base; Yocto reserved for embedded line-out) | — |
 | **Immutable base pattern (ostree, Fedora Silverblue/blendOS idea)** | 🔶 | Roadmap: `ostree`-based immutable "Obsidian Core" image + per-user overlay (daily-driver channel) | `docs/ROADMAP.md` (long tail), deferred |
 
 ## 2. Kernel & boot
 
 | Upstream | Status | How | Where |
 |---|---|---|---|
-| **Linux + linux-hardened** | ✅ | Rebuild `linux-image-amd64` with hardened baseline (CI `build-packages`) | `debos/overlays-src/common/etc/sysctl…`, `docs/HARDENING.md` |
-| **systemd** (runit/s6/OpenRC as alt) | ✅ | Default init; s6/runit via `init:` field in `profiles/server.yaml` | `debos/obsidian.yaml`, `docs/ARCHITECTURE.md` §4 |
-| systemd-boot / shim / MOK | ✅ | UKI boot + Secure Boot enrollment | `docs/ARCHITECTURE.md` §2 |
-| GRUB2 | ◐ | fallback loader for non-UEFI/bios | build recipe comment |
+| **Linux + linux-hardened** | ⚠️ not built | The hardened config is *specified* but no build step compiles it; the ISO ships the stock trixie `linux-image-amd64`. `scripts/build-kernel.sh` exists but nothing invokes it. | `overlays/common/etc/obsidian/kernel/hardened.config`, `docs/HARDENING.md` |
+| **systemd** | ✅ working | Sole init. `systemd-sysv` in every flavor; `systemd-networkd` + `systemd-resolved` provide the net stack. No runit/s6/OpenRC variants — that was part of the dropped multi-base design. | `build/flavors/common.pkgs`, `docs/ARCHITECTURE.md` §4 |
+| systemd-boot / shim / MOK / UKI | ⚠️ not wired | Specified, not implemented. `scripts/boot-keys.sh` exists but the image boots BIOS+UEFI GRUB, not a signed UKI. | `docs/ARCHITECTURE.md` §2, `scripts/boot-keys.sh` |
+| GRUB2 | ✅ working | Actual loader, BIOS + UEFI, via `grub-mkrescue` | `build/build-iso.sh` §6 |
 | Limine / rEFInd | ⛔ | not needed (systemd-boot covers) | — |
 
 ## 3. Desktop environment (Windows look)
@@ -151,5 +152,14 @@ line), **Zephyr/FreeRTOS** (embedded) — all 🔶 post-1.0 in `docs/ROADMAP.md`
 ## License & maintenance policy
 - All entries are OSI-compatible upstream projects (SPDX noted in the store).
 - Obsidian's own code: GPL-3.0 (see `LICENSE`).
-- Component versions are pinned in `debos/components.lock` at build time so the
-  ISO is reproducible; a `components-updater` bot bumps them with a build+test.
+- **Component versions are NOT currently pinned.** A previous revision of this
+  document claimed they were, in a `debos/components.lock` file that never
+  described anything real and has been deleted. The build tracks trixie, so two
+  builds of the same commit a month apart legitimately differ.
+- **Reproducibility is a Phase 2 goal**, not a present property. The intended
+  mechanism is `snapshot.debian.org` (not a lock file: a lock file pins *names*,
+  not content, and cannot make a build reproducible). `docs/ROADMAP.md` tracks it.
+- Licence exceptions are not limited to OSI-approved. Maltego CE, Binary Ninja
+  and Burp Suite CE are free-to-*use* but not redistributable, and are marked
+  `status: commercial` in `manifests/tools.yaml`. Several pentest tools are
+  dual-use with no OSI licence at all — see `docs/LEGAL.md`.

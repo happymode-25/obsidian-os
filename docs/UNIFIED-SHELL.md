@@ -113,8 +113,10 @@ pkg sources             # apt repos, flatpak remotes, appimage buckets, GitHub s
 pkg install-from <url>  # GitHub store: clone→build-in-Cell→sandbox-install (Agent Hub)
 pkg -g <q>              # opens App Store GUI pre-searched
 ```
-Backends: Debian `apt`, Arch `pacman` (channel), `flatpak` (default sandbox),
-`appimage`/`deb`/`snap` for third parties; `chezmoi` for dotfile/managed config.
+Backends: Debian `apt`, `flatpak` (default sandbox), `appimage`/`deb`/`snap` for
+third parties; `chezmoi` for dotfile/managed config.
+*(There is no `pacman` backend: the Arch second base was dropped — see
+`docs/ADR-0001-debos-replacement.md`. `pkg` is single-base by design.)*
 AI search runs offline via `obsidian-ai` (or provider) and only *suggests*;
 installation always requires a human token.
 

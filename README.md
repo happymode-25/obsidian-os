@@ -48,13 +48,14 @@ trusting any status claim in this repository, including the ones here.
 | **[`docs/GAP-REPORT.md`](docs/GAP-REPORT.md)** | **What was broken, how it was verified, what was fixed** |
 | `docs/ARCHITECTURE.md` | Architecture spec (kernel, base, init, DE, security layers) |
 | `docs/BUILD.md` | **Build guide — read this to build an ISO** |
+| `docs/ADR-0001-debos-replacement.md` | **Why debos and the Arch base were dropped** |
 | `docs/COMPONENT-SOURCES.md` | Upstream open-source map, by layer |
 | `docs/UNIFIED-SHELL.md` | Windows/macOS/Linux unified shell spec + translation tables |
 | `docs/APPS.md` | Security Center + AI Assistant design |
 | `docs/HARDENING.md` | Hardening checklist mapped to the CIS Debian Benchmark |
 | `docs/ROADMAP.md` | MVP → Beta → 1.0 milestone plan |
 | `docs/LEGAL.md` | Ethical/legal guardrails (tools disabled by default, consent gating) |
-| `build/build-iso.sh` | The build driver: debootstrap → packages → overlays → squashfs → ISO |
+| `build/build-iso.sh` | The build driver: mmdebstrap → packages → overlays → squashfs → ISO |
 | `build/flavors/*.pkgs` | Per-flavor package lists (the entire flavor definition) |
 | `overlays/common/` | Hardening applied to every image: sysctl, nftables, AppArmor, boot attestation |
 | `overlays/ghost/` | Ghost flavor: volatile journal, Tor-only egress, shutdown residue reduction |

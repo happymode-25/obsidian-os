@@ -43,6 +43,7 @@ REQUIRED = [
     "docs/PLAN.md",
     "docs/BUILD.md",
     "docs/GAP-REPORT.md",
+    "docs/ADR-0001-debos-replacement.md",
     "docs/COMPONENT-SOURCES.md",
     "docs/UNIFIED-SHELL.md",
     "docs/APPS.md",
