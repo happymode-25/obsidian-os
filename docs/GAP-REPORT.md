@@ -647,3 +647,59 @@ boottest: PASS (log: .../obsidian-boot-20260929-194826.log)
 Phase 1 now has both flavors green. The remaining Phase 1 items (installer,
 Secure Boot/UKI, hardened kernel) are documented in `docs/PLAN.md`.
 
+### 14.5 The gate is proven to fail on stock Debian, with external evidence (2026-09-29)
+
+The strict gate's "forbidden fingerprint" check exists to catch a bad image
+accidentally shipping as vanilla Debian (§1.1). §14.2 proved it red on our own
+un-branded build of the same pipeline; this section closes the requirement
+against a *real* Debian artifact: the official live ISO, byte-verified against
+the mirror's `SHA256SUMS`.
+
+Artifact and verification:
+
+- `debian-live-13.7.0-amd64-standard.iso` (trixie 13.7.0),
+  2,020,130,816 bytes.
+- sha256 `040a44f35186321eb6cdaab52a8a2d06224fe6b77f6fbb9f1861ad89c14e17ec`
+  — matches the official `SHA256SUMS` line for that exact file name (offset:
+  a naive `grep 'standard'` comparison in the fetch script also matched the
+  `.contents` / `.log` / `.packages` lines and falsely reported MISMATCH; the
+  `.iso` line itself is an exact match, re-verified independently).
+- `/live/vmlinuz` (12,142,528 B, kernel `6.12.107+deb13-amd64`) and
+  `/live/initrd.img` (113,383,147 B) extracted with xorriso.
+
+Boot (same host + WHPX path as our gates, serial forced because the stock
+image's own GRUB has no `console=`):
+
+```
+qemu-system-x86_64 -accel whpx -machine pc -m 2048 -display none
+  -kernel stock-vmlinuz -initrd stock-initrd.img
+  -append "console=ttyS0,115200n8 boot=live components quiet"
+  -cdrom debian-live-13.7.0-amd64-standard.iso
+  -serial file:stock-boot-20260929-200414.log -no-reboot
+```
+
+Serial log evidence (`stock-boot-20260929-200414.log`, 142 bytes — `quiet`
+caps kernel chatter; the getty banner from the stock `/etc/issue` is what the
+gate reads):
+
+```
+Debian GNU/Linux 13 debian ttyS0
+
+debian login:
+```
+
+Gate verdict on stock Debian:
+
+```
+FORBIDDEN 'Welcome to Debian'      absent
+FORBIDDEN 'Debian GNU/Linux'       FOUND   <- gate fails here (as required)
+OBSIDIAN-OS-MARKER                 absent
+OBSIDIAN-OS-READY                  absent
+flavor=                            absent
+```
+
+So: stock Debian boots fine under the identical QEMU/WHPX setup but the same
+gate that reads `PASS` on both Obsidian flavors here reads **FAIL** on stock
+Debian. The green runs are not an artifact of the harness — the markers only
+appear in images we actually built and branded.
+
