@@ -56,9 +56,24 @@ jobs:
           path: /tmp/obs-repo
           retention-days: 1
 
+  # ---- 1b. hardened kernel .deb (linux source + Obsidian fragment) --------
+  build-kernel:
+    needs: validate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build obsidian-kernel .debs
+        run: bash scripts/build-kernel.sh
+      - name: Upload kernel debs
+        uses: actions/upload-artifact@v4
+        with:
+          name: obs-repo-kernel
+          path: kernel-out/*.deb
+          retention-days: 1
+
   # ---- 2. build the ISO per flavor in the debos container ----------------
   build-iso:
-    needs: build-packages
+    needs: [build-packages, build-kernel]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -71,6 +86,13 @@ jobs:
         with:
           name: obs-repo
           path: repo
+      - name: Download kernel debs
+        uses: actions/download-artifact@v4
+        with:
+          name: obs-repo-kernel
+          path: kernel
+      - name: Merge kernel debs into repo
+        run: cp kernel/*.deb repo/
       - name: Install QEMU (boot test side)
         run: |
           sudo apt-get update
@@ -86,6 +108,7 @@ jobs:
             -w /obsidian \
             ghcr.io/go-debos/debos:v1.1.16 \
             -t flavor:${{ matrix.flavor }} \
+            -t kernel:obsidian \
             debos/obsidian.yaml
       - name: QEMU boot smoke test
         run: |

@@ -37,6 +37,7 @@ first-boot wizard, Security Center, and AI Assistant.
 | `scripts/firstboot-wizard` | First-boot setup (language / privacy level / profile) |
 | `scripts/scaffold-packages.py` | Generates all `obsidian-*` metapackage skeletons for CI |
 | `scripts/boot-keys.sh` | Secure Boot key enrollment + UKI signing (sbctl) |
+| `scripts/build-kernel.sh` | Builds the hardened `obsidian-kernel` .deb from source |
 | `debos/installer/` | Calamares guided installer (LUKS2, systemd-boot, Secure Boot) |
 | `.github/workflows/build-iso.yml` | CI/CD that builds and signs ISOs on every tag |
 

@@ -8,6 +8,7 @@
 debos/overlays/*.tar
 debos/packages/*.deb
 archiso/work/
+kernel-out/
 
 # Python / tooling caches
 __pycache__/

@@ -1,0 +1,16 @@
+Source: obsidian-kernel
+Section: kernel
+Priority: optional
+Maintainer: Obsidian OS <obsidian@localhost>
+Standards-Version: 4.7.0
+Build-Depends: debhelper-compat (= 13)
+
+Package: obsidian-kernel
+Architecture: amd64
+Provides: linux-image-amd64, linux-image
+Conflicts: linux-image-amd64
+Description: Obsidian OS hardened kernel (built by scripts/build-kernel.sh)
+ The binary image is produced by the CI build-kernel job from the Debian
+ linux source + debos/overlays-src/common/etc/obsidian/kernel/hardened.config;
+ this control file exists so the .deb can be indexed into the obsidian repo and
+ satisfy recipes that depend on linux-image-amd64.

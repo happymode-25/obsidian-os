@@ -5,6 +5,9 @@
 {{- $f := or .flavor "daily"}}
 {{- $arch := or .arch "amd64"}}
 {{- $release := or .release "trixie"}}
+{{- $kernel := or .kernel "stock"}}
+{{- $kimg := "linux-image-amd64"}}
+{{- if eq $kernel "obsidian"}}{{$kimg = "obsidian-kernel"}}{{end}}
 {{- $profile := ""}}
 {{- if eq $f "penta"}}{{$profile = "pentester"}}{{else if eq $f "server"}}{{$profile = "server"}}{{else if eq $f "ghost"}}{{$profile = "privacy-max"}}{{else}}{{$profile = "daily-driver"}}{{end}}
 
@@ -20,7 +23,7 @@ actions:
   # ---- base system (kernel + boot chain) --------------------------------
   - action: apt
     packages:
-      - linux-image-amd64          # hardened-flavored rebuild via obsidian-kernel pkg
+      - {{ $kimg }}                # obsidian-kernel (hardened) when -t kernel:obsidian
       - linux-headers-amd64
       - systemd
       - systemd-boot
