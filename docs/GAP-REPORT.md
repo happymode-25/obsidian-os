@@ -448,7 +448,7 @@ tested failing has not been tested.
 
 | Area | Before | After |
 |---|---|---|
-| ISO pipeline | unbuildable | runs; configures packages — **blocked on host memory, no ISO produced yet** |
+| ISO pipeline | unbuildable | bootstrap completes + shim proven (§11.6, §13); assembly in flight — **no ISO produced yet** |
 | Boot gate | could not fail | strict, self-verified, markers shared with the Windows runner, acceleration probed not assumed — **never executed against a real image** |
 | Hardening overlay | 3 real rule-order bugs | fixed + documented |
 | Ghost overlay | README only | 6 real files |
@@ -467,4 +467,59 @@ tested failing has not been tested.
 pipeline is written, syntax-clean and semantically gated, but the boot test and
 the CI matrix remain entirely unexercised. Everything after "the bootstrap
 completes" is unproven.
+
+---
+
+## 13. What the first real builds actually hit
+
+Once the bootstrap started completing, three further failures appeared — none
+of them image defects, all of them environment — and each cost a full ~10
+minute re-bootstrap before it was understood. Recorded so the next builder
+recognises them instantly.
+
+**1. The dangling-symlink `resolv.conf` kill (fixed).** `mmdebstrap` leaves the
+chroot's `/etc/resolv.conf` as a symlink to
+`../run/systemd/resolve/stub-resolv.conf`, a path that does not exist inside
+the build tree. The script's guard "copy host `resolv.conf` if the chroot's
+lacks a `nameserver` line" is satisfied by a dangling link — `grep` silently
+fails through it — so GNU `cp` runs and refuses:
+
+```
+cp: not writing through dangling symlink '.../etc/resolv.conf'
+ISO_MISSING (rc=1)
+```
+
+This code path had never executed before, because nothing had ever passed the
+bootstrap. Fixed in `build/build-iso.sh` (commit `a3d0ffe`): remove the symlink
+before copying. The general rule: post-bootstrap chroot-file handling must
+expect dangling symlinks; the failure only appears with a real bootstrap, so
+hand-testing the script cannot catch it.
+
+**2. The bottleneck was the mirror route, not the build.** `deb.debian.org`
+(https and http) and `ftp.debian.org` delivered ~87 KB/s for a 5 MiB range on
+this host; `mirrors.kernel.org` delivered 2.3 MB/s for the same file. The
+kernel `.deb` alone is ~108 MB — at the slow route that is 20+ minutes minimum,
+and apt's real rate collapsed to single-digit KB/s, so the "installing
+remaining packages" phase looked like a hang (the fingerprint: host idle, no
+apt/dpkg child, one socket in the `https` method, a `partial/*.deb` crawling
+up). Measuring a 5 MiB range with `curl -r` against several mirrors settled it
+in a minute. `build/build-iso.sh` takes `--mirror <url>`; the reference builds
+use `http://mirrors.kernel.org/debian`. This corrects the earlier picture: the
+post-bootstrap phase was never inherently slow, the route to the default
+mirror was.
+
+**3. A detached build does not survive a host restart.** The launcher uses
+`setsid nohup ... &` precisely so the build outlives the invoking shell — which
+it does. It does not outlive a Windows/WSL restart; after a restart the build
+was found dead mid-bootstrap with **no error markers** (the log simply stops at
+"installing remaining packages"). Diagnosis must check process state first; the
+log tail alone is ambiguous. Relaunching with the same mirror override is
+correct — preflight cleanup discards the dead tree.
+
+Status at the time of writing: the bootstrap completes (187 packages), all
+post-bootstrap chroot steps have been probed against the real chroot (`chpasswd`,
+`groupadd`, `useradd` — shadow uses `flock`, so the removed OFD shim is not
+needed there — and `update-initramfs`, which produced a 41 MB live-boot initrd,
+falling back to gzip because zstd is not in the image package set), and the ISO
+assembly + boot test remain in flight.
 

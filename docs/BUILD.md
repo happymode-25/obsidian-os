@@ -290,6 +290,49 @@ media and check whether QEMU survives. Note the spelling is `whpx`, not
 `wphx`; the typo fails closed into TCG, which presents as a passing-but-slow
 gate rather than an error.
 
+### 6.3 Operational failures from the first real builds
+
+The build host is WSL1 on a shared-desktop Windows machine. Three failures that
+looked like build defects were actually environment, and each cost a full
+bootstrap (~10 minutes) to discover:
+
+**A dangling `resolv.conf` symlink kills the first post-bootstrap step.**
+`mmdebstrap` leaves the chroot's `/etc/resolv.conf` as a symlink to
+`../run/systemd/resolve/stub-resolv.conf` — a target that does not exist inside
+the build tree. The guard "copy the host resolv.conf in if the chroot's lacks a
+`nameserver` line" is *satisfied* by a dangling link (grep silently fails
+through it), so the copy runs, and GNU `cp` refuses to write through a dangling
+symlink:
+
+```
+cp: not writing through dangling symlink '.../build/work/chroot/etc/resolv.conf'
+ISO_MISSING (rc=1)
+```
+
+Fixed in `build/build-iso.sh` by removing the symlink before copying. The rule
+it teaches: this failure mode only shows up *after* a successful bootstrap, so
+no amount of pre-verification of the script catches it — the chroot must be
+tested with a real bootstrap.
+
+**A throttled mirror, not a slow build.** On this host, `deb.debian.org`
+(https and http) and `ftp.debian.org` all delivered ~87 KB/s for a 5 MiB range,
+while `mirrors.kernel.org` delivered 2.3 MB/s for the same file. The kernel
+`.deb` (`linux-image-6.12.107+deb13-amd64`) is ~108 MB, so at the throttled
+rate the "installing remaining packages" phase takes 20+ minutes at best and
+apt's real rate collapsed to single-digit KB/s — indistinguishable short-term
+from the apparent stall in §2. Measure the actual throughput before waiting it
+out; apt verifies package hashes, so mirror choice is safe. The build driver
+takes `--mirror <url>` (`build/build-iso.sh`); the reference builds use
+`http://mirrors.kernel.org/debian`.
+
+**A detached build does not survive a host restart.** `launch-build.sh` uses
+`setsid nohup ... &` so the build survives the invoking shell dying — but not a
+Windows/WSL restart, which kills every WSL process regardless of `setsid`. After
+a host restart the build is found dead mid-bootstrap with **no error markers**
+(the log just stops). Check process state, not the log tail, before diagnosing;
+then relaunch with the same mirror override — preflight cleanup discards the
+dead run's tree automatically.
+
 ## 7. Reproducibility
 
 `SOURCE_DATE_EPOCH` defaults to a fixed value and the chroot's `/etc/machine-id`
