@@ -581,9 +581,8 @@ menuentry "Obsidian OS $HF ($SUITE/$ARCH)" {
            console=tty0 console=ttyS0,115200n8 \\
            systemd.show_status=true \\
            apparmor=1 security=apparmor \\
-           mitigations=auto,nosmt,noexec \\
-           random.trust_cpu=off \\
-           slab_fuzz=on
+           mitigations=auto,nosmt \\
+           random.trust_cpu=off
 EOF
   if [ -n "$CMDLINE_EXTRA" ]; then
     printf '           %s\n' "$CMDLINE_EXTRA"
