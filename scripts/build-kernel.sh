@@ -226,9 +226,16 @@ fi
 PKGVER="$(dpkg-parsechangelog -S Version 2>/dev/null | head -1 || echo 6.12)"
 mv debian "$BUILD_DIR/linux-debian" 2>/dev/null || true
 say "building with make -j$JOBS bindeb-pkg (source version $PKGVER)…"
+# mkdebian's generated debian/control declares `debhelper-compat (= 12)` (a
+# Debian-provided build-dep virtual). Ubuntu's debhelper Provides `(= 13)` (or
+# is absent), so that exact pin can never be satisfied there — even though the
+# real toolchain (make, gcc, dpkg-dev, libssl-dev, …) is fully installed above
+# and mkdebian's debian/rules builds via the kernel's own Makefile, not dh_*.
+# DPKG_FLAGS=-d is the packaging's supported hook to skip this auto check.
 make -j"$JOBS" bindeb-pkg \
   KDEB_PKGVERSION="${PKGVER}.obsidian" \
   LOCALVERSION=-obsidian-h \
+  DPKG_FLAGS=-d \
   >/dev/null || { rm -rf "$BUILD_DIR"; die "bindeb-pkg failed"; }
 
 # ---- 4. collect artifacts ----------------------------------------------------
