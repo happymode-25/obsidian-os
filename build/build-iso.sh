@@ -158,6 +158,120 @@ PKGLIST="$WORK/packages.list"
 INCLUDE="$(paste -sd, "$PKGLIST")"
 log "package set: $(wc -l < "$PKGLIST") packages for flavor '$FLAVOR'"
 
+# --------------------------------------------------------------------------- #
+# 1b. hosts that lack open-file-description locks (WSL1)
+# --------------------------------------------------------------------------- #
+# WSL1's kernel emulation does not implement F_OFD_SETLK: it returns EINVAL on
+# every filesystem, including tmpfs, while F_SETLK and flock(2) both work.
+# systemd takes an OFD lock on /etc/passwd, so on such a host every systemd
+# package fails to configure and the build cannot produce an image.
+#
+# The fix is a build-host shim, not a change to what gets installed: the shim
+# supplies the missing lock acquisition, the package's own maintainer script
+# then runs and performs its real work, and the shim is removed before the
+# image is sealed. The shipped ISO contains stock Debian binaries and no shim.
+#
+# See build/wsl1-ofd-lock-shim.c for the mechanism and the safety argument.
+# The host is probed rather than pattern-matched, so a normal Linux build host
+# never compiles or installs any of this.
+# Returns 0 if the host supports OFD locks, 1 if it definitively does not.
+# Anything it cannot decide counts as "supported": a build on a normal Linux
+# host must never be diverted into the shim path by a broken probe.
+#
+# The probe carries a control. It locks with F_SETLK first; if that fails, the
+# probe is malformed rather than the host unusual, and the verdict is
+# "inconclusive" rather than "this host lacks OFD locks". Without the control a
+# wrong struct size would return EINVAL and be reported as a missing kernel
+# feature, which would send a perfectly good build host down the shim path.
+ofd_locks_work() {
+  command -v python3 >/dev/null 2>&1 || return 0   # cannot tell; assume a normal host
+  python3 - "$WORK/.ofd-probe" >/dev/null 2>&1 <<'PROBE'
+import fcntl, os, struct, sys
+F_SETLK, F_OFD_SETLK = 14, 37
+# Native "hhqqi" is exactly sizeof(struct flock) on x86_64; no manual padding,
+# so the size cannot drift. The control below is what actually validates it.
+fl = struct.pack("hhqqi", fcntl.F_WRLCK, os.SEEK_SET, 0, 0, 0)
+fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o644)
+
+def try_lock(op):
+    # Success is "no exception", NOT a zero return. When the argument is a bytes
+    # object, Python's fcntl returns the reply buffer, so a successful lock
+    # yields bytes -- testing the result against 0 reports every working lock as
+    # a failure, and the probe would then call a perfectly good host broken.
+    try:
+        fcntl.fcntl(fd, op, fl)
+        return True
+    except OSError:
+        return False
+
+if not try_lock(F_SETLK):
+    sys.exit(2)                       # control failed: probe is wrong, not the host
+sys.exit(0 if try_lock(F_OFD_SETLK) else 1)
+PROBE
+  local probe_rc=$?
+  rm -f "$WORK/.ofd-probe"
+  case "$probe_rc" in
+    0) return 0 ;;
+    1) return 1 ;;
+    2) warn "OFD-lock probe was inconclusive (control F_SETLK also failed);"
+       warn "assuming a normal host. If the build then fails with"
+       warn "'Failed to take /etc/passwd lock', this probe is the thing to fix."
+       return 0 ;;
+    *) return 0 ;;
+  esac
+}
+
+OFD_SHIM=""
+if ofd_locks_work; then
+  log "  host supports open-file-description locks; no shim needed"
+else
+  warn "host does NOT support F_OFD_SETLK (WSL1); systemd cannot configure without help"
+  command -v gcc >/dev/null 2>&1 || command -v cc >/dev/null 2>&1 \
+    || die "this host needs the OFD-lock shim but has no C compiler (gcc/cc).
+       Either install one, or build on a host with working OFD locks (any
+       normal Linux, or WSL2). See build/wsl1-ofd-lock-shim.c."
+  CC="$(command -v gcc || command -v cc)"
+  OFD_DIR="$WORK/ofd"
+  rm -rf "$OFD_DIR"
+  mkdir -p "$OFD_DIR"
+  "$CC" -O2 -fPIC -shared \
+    -o "$OFD_DIR/obsidian-ofd-shim.so" \
+    "$BUILD_DIR/wsl1-ofd-lock-shim.c" -ldl \
+    || die "failed to compile the OFD-lock shim"
+  # Fail loudly if the compiler dropped the overrides: with no such symbol
+  # exported there is no interposition at all, and the build would fail later
+  # with the original error while appearing to have a shim in place.
+  nm -D --defined-only "$OFD_DIR/obsidian-ofd-shim.so" 2>/dev/null \
+    | grep -q 'take_etc_passwd_lock' \
+    || die "the compiled OFD-lock shim exports no take_etc_passwd_lock symbol."
+  # ld.so.preload rather than LD_PRELOAD: dpkg sanitises the environment of the
+  # maintainer scripts it spawns, so LD_PRELOAD does not reach them.
+  # ld.so.preload is read by the dynamic linker itself and cannot be stripped.
+  echo /usr/lib/obsidian-ofd-shim.so > "$OFD_DIR/ld.so.preload"
+  OFD_SHIM=1
+  log "  compiled the OFD-lock shim; it will be removed before the image is sealed"
+fi
+
+# Extra mmdebstrap arguments; empty unless the shim is in play.
+OFD_HOOKS=()
+if [ -n "$OFD_SHIM" ]; then
+  # mmdebstrap's own HOOKS section defines the contract:
+  #   - a hook argument starting with "copy-in " is a special hook of the form
+  #     `copy-in pathoutside [pathoutside ...] pathinside`
+  #   - hooks run in the order given on the command line
+  #   - "the path inside the chroot must already exist"
+  # At setup-hook time mmdebstrap has created only /etc/apt, /var/cache and
+  # /var/lib, so /usr/lib has to be made first or copy-in refuses. The setup
+  # hook runs before packages are downloaded or installed, which is before
+  # systemd's maintainer script executes; the customize hook runs last.
+  OFD_HOOKS=(
+    --setup-hook='mkdir -p "$1"/usr/lib'
+    --setup-hook="copy-in $OFD_DIR/obsidian-ofd-shim.so /usr/lib"
+    --setup-hook="copy-in $OFD_DIR/ld.so.preload /etc"
+    --customize-hook='rm -f "$1"/usr/lib/obsidian-ofd-shim.so "$1"/etc/ld.so.preload'
+  )
+fi
+
 log "bootstrapping $SUITE/$ARCH -> $CHROOT  (this is the slow part)"
 if command -v mmdebstrap >/dev/null 2>&1; then
   BOOTSTRAPPER=mmdebstrap
@@ -167,11 +281,20 @@ if command -v mmdebstrap >/dev/null 2>&1; then
     --variant=minbase \
     --components=main,contrib,non-free-firmware \
     --include="$INCLUDE" \
+    "${OFD_HOOKS[@]}" \
     "${APT_OPTS[@]}" \
     "$SUITE" "$CHROOT" "$MIRROR"
 elif command -v debootstrap >/dev/null 2>&1; then
   BOOTSTRAPPER=debootstrap
   warn "mmdebstrap not found; falling back to debootstrap (much slower, see the comment above)"
+  # debootstrap has no pre-install hook. Injecting the shim would mean
+  # splitting the run into --first-stage and --second-stage around it, and
+  # that path is untested here, so say so rather than ship a guess.
+  if [ -n "$OFD_SHIM" ]; then
+    die "this host needs the OFD-lock shim, but debootstrap offers no hook to
+       install it before packages are configured. Install mmdebstrap
+       (apt install mmdebstrap) and re-run."
+  fi
   debootstrap \
     --arch="$ARCH" \
     --variant=minbase \
@@ -223,6 +346,22 @@ if [ -n "$MISSING_PKGS" ]; then
 fi
 INSTALLED=$(chroot "$CHROOT" /usr/bin/dpkg-query -W -f='${binary:Package}\n' 2>/dev/null | wc -l)
 log "  all $(wc -l < "$PKGLIST") requested packages present ($INSTALLED total installed)"
+
+# --------------------------------------------------------------------------- #
+# 3b. the build host's OFD-lock shim must not reach the image
+# --------------------------------------------------------------------------- #
+# The shim exists so systemd's maintainer script can run on WSL1. It is a
+# property of the build host, not of the distribution, and an ISO that shipped
+# it would preload a lock-stub into every process on first boot -- including
+# anything the user installs later. mmdebstrap's customize hook removes it;
+# this asserts that it did, because "the hook should have worked" is not a
+# check.
+rm -f "$CHROOT/usr/lib/obsidian-ofd-shim.so" "$CHROOT/etc/ld.so.preload"
+LEFTOVER=$(find "$CHROOT" \( -name 'obsidian-ofd-shim.so' -o -name 'ld.so.preload' \) 2>/dev/null | head -5)
+if [ -n "$LEFTOVER" ]; then
+  die "the OFD-lock shim is still present in the image and would be preloaded at boot:$LEFTOVER"
+fi
+[ -n "$OFD_SHIM" ] && log "  OFD-lock shim removed from the image (verified absent)"
 
 # The chroot gets a working resolver. mmdebstrap/debootstrap leave a
 # resolv.conf that is either absent or copied from the build host, and on a

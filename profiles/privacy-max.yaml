@@ -8,24 +8,44 @@
 #   - Transparent Tor (kill-switch enforced), DoH for non-Tor apps
 #   - Amnesic live mode available from the boot menu (overlay root on tmpfs)
 #   - Memory wipe hooks on shutdown
-#   - VeraCrypt-compatible vault for anything you intentionally persist
+#   - Encrypted vault for anything you intentionally persist.
+#
+# NOTE: the vault was specified as "VeraCrypt-compatible". VeraCrypt was removed
+# from Debian over licensing, so it cannot be shipped. LUKS2 is what the image
+# actually provides. See `not_in_suite:` below.
 
 name: privacy-max
 label: Privacy-Max (Ghost)
+# The flavor is called `ghost`; the profile is called `privacy-max`. These are
+# the same thing and the names must not be conflated.
+flavor: ghost
 posture: ghost
 session: obsidianwm              # or headless for tails-like minimal
 channel: rolling
 footprint: minimal-live
 
 packages:
-  - obsidian-ghost
-  - tor torsocks obfs4proxy
+  - obsidian-ghost              # HOLLOW: installs a README and nothing else (Phase 2)
+  - tor
+  - torsocks
+  - obfs4proxy
   - wireguard-tools
-  - veracrypt
   - macchanger
   - secure-delete
-  - iptables nftables
-  - fwupd-efi
+  - iptables
+  - nftables
+  - fwupd                      # NOT `fwupd-efi`: there is no separate fwupd-efi
+                               # package in trixie; the EFI support is inside fwupd.
+
+# Not installable from the Debian suite. Verified against the trixie index:
+#   veracrypt -> REMOVED from Debian over licensing. The VeraCrypt-compatible
+#                vault this profile describes is therefore not shippable, and
+#                the honest options are LUKS2 (already present) or a
+#                user-supplied static build. Until one is chosen, the profile
+#                does not claim the capability.
+#   fwupd-efi -> folded into `fwupd` upstream; use the package above.
+not_in_suite:
+  - veracrypt
 
 amnesic:
   overlay: tmpfs                 # rd.live.overlay.overlayfs

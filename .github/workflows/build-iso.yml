@@ -48,6 +48,12 @@ jobs:
           python-version: '3.12'
       - run: python3 -m pip install --quiet pyyaml
 
+      # The Ubuntu runners have a real kernel, so they have working F_OFD_SETLK
+      # and the build NEVER compiles the WSL1 OFD-lock shim here. Nothing in a
+      # real build would notice a shim that had rotted into non-compiling source.
+      # validate-build.py compiles it and checks the exported symbols
+      # specifically to close that hole, so this job needs a compiler --
+      # `gcc` is preinstalled on ubuntu-24.04 and `nm` comes with it.
       - name: Build pipeline self-test (proves the gate can fail)
         run: python3 scripts/validate-build.py --self-test
 
@@ -74,8 +80,14 @@ jobs:
       - name: Install build + boot-test dependencies
         run: |
           sudo apt-get update -qq
+          # mmdebstrap, not debootstrap: debootstrap fetches every .deb with one
+          # serial wget on GNU wget's default timeouts (--dns-timeout=900), so a
+          # single stalled connection blocks the whole bootstrap for 15 minutes
+          # and a fast link is wasted. Measured 20min -> 754s. debootstrap stays
+          # available in the image as the documented fallback, but CI exercises
+          # the primary path so the primary path is the one that is tested.
           sudo apt-get install -y --no-install-recommends \
-            debootstrap debian-archive-keyring \
+            mmdebstrap debian-archive-keyring \
             squashfs-tools xorriso mtools dosfstools \
             grub2-common grub-pc-bin grub-efi-amd64-bin \
             systemd qemu-system-x86 qemu-utils

@@ -22,16 +22,27 @@ Build host (Debian or Ubuntu, **root** required):
 
 | Tool | Debian/Ubuntu package |
 |---|---|
-| `debootstrap` | `debootstrap` |
+| **bootstrapper (preferred)** | **`mmdebstrap`** — see below, do not start with `debootstrap` |
+| fallback bootstrapper | `debootstrap` |
 | suite signature keyring | `debian-archive-keyring` |
 | squashfs | `squashfs-tools` |
 | ISO + bootloader | `xorriso`, `mtools`, `dosfstools`, `grub2-common`, `grub-pc-bin`, `grub-efi-amd64-bin` |
 | unit management | `systemd` (for `systemctl --root`) |
+| C compiler | `gcc` or `cc` — **only needed on a host that lacks OFD locks** (WSL1); see §6.1 |
 
 ```bash
-sudo apt-get install -y debootstrap debian-archive-keyring squashfs-tools \
+sudo apt-get install -y mmdebstrap debian-archive-keyring squashfs-tools \
   xorriso mtools dosfstools grub2-common grub-pc-bin grub-efi-amd64-bin systemd
 ```
+
+> **Use `mmdebstrap`, not `debootstrap`.** `debootstrap` fetches every `.deb`
+> with a single serial `wget` running GNU wget's default timeouts
+> (`--dns-timeout=900 --connect-timeout=900 --tries=20`). On any host whose
+> network accepts a connection and then stalls, one package blocks the whole
+> bootstrap for 15 minutes, and it downloads sequentially, so a fast link is
+> wasted. Measured on the WSL1 host this was written for: `debootstrap` managed
+> 10 packages in 20 minutes; `mmdebstrap` did the same job in 754s.
+> `debootstrap` remains a supported fallback and is still listed above.
 
 > `debian-archive-keyring` is not optional. Without it debootstrap cannot verify
 > the suite's `Release` signature and aborts with *"Failed getting release
@@ -154,8 +165,8 @@ feature; without it `wsl --import --version 2` fails with
 already running, VT-x works. Run `tools/enable-wsl2.ps1` as Administrator and
 reboot.
 
-WSL1 works for this build (`mount -t proc`, `mount --bind`, and `chroot` all
-function, which is all `debootstrap` needs), with two caveats:
+WSL1 works for this build, with three caveats. The first two are network and
+name-resolution traps; the third stops the build outright.
 
 - It ships IPv6-only resolvers (`fec0:...`) that are unreachable. Write a real
   `/etc/resolv.conf`, and set `Acquire::ForceIPv4 "true"` in
@@ -165,6 +176,45 @@ function, which is all `debootstrap` needs), with two caveats:
   not run under WSL1, so that target never exists and **all name resolution
   fails with no obvious cause**. Replace the symlink with a real file and mask
   `systemd-resolved.service`.
+
+### 6.1 WSL1 cannot lock `/etc/passwd` — and the build handles it
+
+WSL1's kernel emulation does not implement open-file-description locks
+(`F_OFD_SETLK`, Linux 3.15+). Measured on this host:
+
+| lock API | wslfs | tmpfs |
+|---|---|---|
+| `flock(2)` | OK | OK |
+| `fcntl(F_SETLK)` | OK | OK |
+| `fcntl(F_OFD_SETLK)` | **EINVAL** | **EINVAL** |
+
+Because tmpfs fails identically, no mount arrangement works around it: it is a
+missing kernel feature, not a filesystem property. `systemd-sysusers` takes an
+OFD lock on `/etc/passwd`, and it runs from systemd's postinst, so **every**
+systemd package fails to configure:
+
+```
+Failed to take /etc/passwd lock: Invalid argument
+dpkg: error processing package systemd (--configure)
+```
+
+The build detects this with a **capability probe**, not a hostname check, and
+only then compiles `build/wsl1-ofd-lock-shim.c` and injects it through an
+mmdebstrap setup hook. A normal Linux build host — and WSL2 — never compiles or
+installs any of it.
+
+The shim supplies the missing lock acquisition only. The package's own
+maintainer script then runs and performs its real work, so the users systemd
+creates are genuine, not synthesised. The shim is removed by an mmdebstrap
+customize hook, and `build-iso.sh` then *asserts* it is absent from the image
+before continuing: shipping it would preload a lock-stub into every process on
+first boot, including anything the user installs later.
+
+If you ever see `Failed to take /etc/passwd lock` from this build, the probe
+reached the wrong verdict — that is the thing to look at, not the package.
+`scripts/validate-build.py` and `docs/GAP-REPORT.md` §11 record the full
+diagnosis, including the two wrong turns on the way (suspecting `flock`, and
+reading an `objdump` that turned out not to be installed).
 
 **QEMU acceleration.** On a host without VT-x exposed to the guest, use
 `-accel tcg`. The boot test already does.

@@ -36,7 +36,10 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import urllib.request
 
 for _s in (sys.stdout, sys.stderr):
@@ -210,19 +213,63 @@ def check_boot_test() -> None:
     else:
         ok("no soft-mode escape hatch")
 
-    if re.search(r"OBSIDIAN-OS-MARKER", code):
-        ok("asserts on the unique OBSIDIAN-OS-MARKER")
-    else:
+    # The markers moved to tests/boot-markers.conf so that boottest.sh and
+    # boottest-win.ps1 cannot drift apart. The gate's substance is now in that
+    # file, so the checks below have to look there - checking the runner's shell
+    # source for the marker names would have passed on a runner that no longer
+    # checks anything at all.
+    markers_raw = read("tests/boot-markers.conf")
+    if markers_raw is None:
         fail(
-            "tests/boottest.sh does not assert on OBSIDIAN-OS-MARKER. Without a "
+            "tests/boot-markers.conf missing. It holds the required/forbidden "
+            "marker lists shared by boottest.sh and boottest-win.ps1; without it "
+            "the two runners would each need their own copy and would drift."
+        )
+        return
+    req = [l.split(None, 1)[1].strip() for l in markers_raw.splitlines()
+           if l.strip() and not l.strip().startswith("#") and l.split(None, 1)[0] == "required"]
+    forb = [l.split(None, 1)[1].strip() for l in markers_raw.splitlines()
+            if l.strip() and not l.strip().startswith("#") and l.split(None, 1)[0] == "forbidden"]
+
+    if not req:
+        fail("tests/boot-markers.conf lists no `required` markers; every image would pass")
+    elif not any("OBSIDIAN-OS-MARKER" in m for m in req):
+        fail(
+            "tests/boot-markers.conf requires no OBSIDIAN-OS-MARKER. Without a "
             "marker only our own build can emit, the test cannot tell our image "
             "from vanilla Debian."
         )
-
-    if re.search(r"FORBIDDEN", code):
-        ok("has an explicit forbidden-marker list (anti stock-Debian check)")
     else:
-        fail("tests/boottest.sh has no FORBIDDEN list; stock Debian slipping through is undetected")
+        ok(f"asserts on the unique OBSIDIAN-OS-MARKER ({len(req)} required marker(s))")
+
+    if not forb:
+        fail(
+            "tests/boot-markers.conf lists no `forbidden` markers; stock Debian "
+            "slipping through is undetected"
+        )
+    else:
+        ok(f"has an explicit forbidden-marker list ({len(forb)} entries)")
+
+    # Both runners must actually read the shared list, and both must refuse to
+    # run with an empty one. A runner that silently treats "no markers" as
+    # "nothing to check" is the soft gate all over again.
+    for runner in ("tests/boottest.sh", "tests/boottest-win.ps1"):
+        rtext = read(runner)
+        if rtext is None:
+            fail(f"{runner} missing")
+            continue
+        if "boot-markers.conf" not in rtext:
+            fail(
+                f"{runner} does not reference tests/boot-markers.conf. The two "
+                f"boot-test runners must share one definition of the gate."
+            )
+        elif not re.search(r"refus\w*|cannot fail|no required markers", rtext, re.I):
+            fail(
+                f"{runner} reads the shared marker list but has no guard against "
+                f"an empty one, so an emptied list would make it pass everything."
+            )
+        else:
+            ok(f"{runner} uses the shared marker list and guards against an empty one")
 
     if re.search(r"Reached target|login:\s*\||tty\[S0-9\]", code):
         fail("tests/boottest.sh still matches stock-Debian console output in its success criteria")
@@ -234,27 +281,67 @@ def check_boot_test() -> None:
     else:
         ok("has a non-zero exit path on failure")
 
-    # A negative control: the marker must actually be produced by something in
-    # the repo, otherwise the test can never pass.
+    # A negative control: the marker must actually be PRODUCED by something that
+    # runs at boot, otherwise the test can never pass.
+    #
+    # "Some file contains the string" is not good enough. Docs, the CI workflow
+    # (in a comment), the validator itself and the marker list all mention
+    # OBSIDIAN-OS-MARKER, and a naive first-match search reported the workflow
+    # YAML as the thing that "emits" it - which is a file that cannot echo. So
+    # look for an executable that actually echoes the marker, then check that
+    # something references it, because a script nothing invokes also never runs.
+    skip_dirs = {".git", "node_modules", "build", "out", "__pycache__", ".github", "docs", "scripts"}
+    echo_re = re.compile(r"echo\b[^\n]*OBSIDIAN-OS-MARKER")
     producer = None
     for base, dirs, files in os.walk(ROOT):
-        dirs[:] = [d for d in dirs if d not in (".git", "node_modules", "build", "out")]
+        dirs[:] = [d for d in dirs if d not in skip_dirs]
         for fn in files:
             p = os.path.join(base, fn)
+            rel = os.path.relpath(p, ROOT).replace("\\", "/")
+            if not (rel.startswith("overlays/") or rel.startswith("tests/")):
+                continue
             try:
-                if "OBSIDIAN-OS-MARKER" in open(p, encoding="utf-8", errors="replace").read():
-                    producer = os.path.relpath(p, ROOT).replace("\\", "/")
+                body = open(p, encoding="utf-8", errors="replace").read()
+            except Exception:
+                continue
+            if rel.startswith("tests/") or not echo_re.search(body):
+                continue  # the test asserting on it is not the thing producing it
+            producer = rel
+            break
+        if producer:
+            break
+
+    if not producer:
+        fail(
+            "no executable in the repo echoes OBSIDIAN-OS-MARKER. The boot test "
+            "requires it, so it can never pass — and worse, a gate that can "
+            "never pass is a gate nobody trusts."
+        )
+        return
+
+    # An emitter nothing calls is the same failure one level deeper: the string
+    # is in the right place, but nothing runs it at boot.
+    name = os.path.basename(producer)
+    referenced = False
+    for base, dirs, files in os.walk(os.path.join(ROOT, "overlays")):
+        dirs[:] = [d for d in dirs if d not in (".git", "__pycache__")]
+        for fn in files:
+            try:
+                if name in open(os.path.join(base, fn), encoding="utf-8", errors="replace").read():
+                    referenced = True
                     break
             except Exception:
                 continue
-        if producer:
+        if referenced:
             break
-    if producer and producer != "tests/boottest.sh":
-        ok(f"marker is emitted by {producer}")
-    elif producer:
-        fail("OBSIDIAN-OS-MARKER appears only in the test itself — nothing produces it")
+    if not referenced:
+        fail(
+            f"{producer} echoes OBSIDIAN-OS-MARKER but nothing in overlays/ "
+            f"references it. The marker would never be printed, so the boot test "
+            f"can never pass."
+        )
     else:
-        fail("nothing in the repo emits OBSIDIAN-OS-MARKER; the boot test can never pass")
+        ok(f"marker is echoed by {producer}, and a unit or overlay invokes it")
 
 
 # --------------------------------------------------------------------------- #
@@ -567,6 +654,114 @@ def check_build_driver() -> None:
             else:
                 ok(f"CI flavor '{fl}' has a package list")
 
+    # ---- the WSL1 OFD-lock shim -------------------------------------------
+    # On a host without F_OFD_SETLK the shim is the only reason systemd can be
+    # configured, so its wiring is checked as carefully as the rest of the
+    # pipeline. The failure it works around is a silent one: without the shim
+    # the build dies deep inside dpkg with a message about /etc/passwd, which
+    # points nowhere near the cause.
+    if re.search(r"F_OFD_SETLK|ofd_locks_work", code):
+        # the probe must exist: pattern-matching "WSL1" by hostname would send a
+        # WSL2 host, which runs a real kernel, down the shim path
+        if "ofd_locks_work" not in code:
+            fail(
+                "build-iso.sh references OFD locks but has no capability probe. "
+                "Detecting WSL1 by hostname/version sends WSL2 — which runs a real "
+                "kernel and needs no shim — down the shim path."
+            )
+        else:
+            ok("OFD-lock handling is gated on a capability probe, not a host check")
+
+        if "wsl1-ofd-lock-shim.c" not in text:
+            fail("build-iso.sh mentions OFD locks but not the shim source it would need")
+        elif read("build/wsl1-ofd-lock-shim.c") is None:
+            fail("build/wsl1-ofd-lock-shim.c is missing; hosts without OFD locks cannot build")
+        else:
+            ok("build/wsl1-ofd-lock-shim.c present")
+
+        # The shim must be removed from the image. Leaving it in would preload a
+        # lock-stub into every process at first boot, including anything the user
+        # installs afterwards.
+        if re.search(r"cp\s+[^|;&]*shim[^|;&]*\$CHROOT", code) and not re.search(
+            r"still present in the image", code
+        ):
+            fail(
+                "build-iso.sh copies the OFD-lock shim into the chroot but never asserts "
+                "it was removed. A shipped shim preloads a lock-stub into every process "
+                "on first boot."
+            )
+        elif re.search(r"still present in the image", code):
+            ok("OFD-lock shim removal from the image is asserted, not assumed")
+
+        # LD_PRELOAD does not reach dpkg's maintainer scripts: dpkg sanitises
+        # their environment. ld.so.preload is read by the loader itself.
+        if re.search(r"LD_PRELOAD", code) and "ld.so.preload" not in code:
+            fail(
+                "build-iso.sh injects the shim via LD_PRELOAD. dpkg sanitises the "
+                "environment of the maintainer scripts it spawns, so LD_PRELOAD never "
+                "reaches systemd's postinst. Use /etc/ld.so.preload."
+            )
+        elif "ld.so.preload" in code:
+            ok("shim is injected via ld.so.preload (survives dpkg's env sanitising)")
+
+        # Every other check here is a text pattern. This one is not, because the
+        # shim is C and a shim that exists but does not compile is invisible to
+        # everything else: the build only compiles it on a host WITHOUT OFD
+        # locks, so CI on an ordinary runner never reaches that code at all. A
+        # shim that rotted into non-compiling source would therefore pass every
+        # gate in this repository and still break every WSL1 build. So compile
+        # it, and check the symbols survived linking.
+        src = os.path.join(ROOT, "build", "wsl1-ofd-lock-shim.c")
+        cc = shutil.which("gcc") or shutil.which("cc")
+        if not os.path.isfile(src):
+            pass  # already reported above
+        elif cc is None:
+            warn(
+                "no C compiler on this host, so the OFD-lock shim was not compiled "
+                "or symbol-checked; that part of the validation did not happen"
+            )
+        else:
+            with tempfile.TemporaryDirectory() as td:
+                so = os.path.join(td, "shim.so")
+                try:
+                    r = subprocess.run(
+                        [cc, "-O2", "-fPIC", "-shared", "-o", so, src, "-ldl"],
+                        capture_output=True, text=True, timeout=180,
+                    )
+                except subprocess.TimeoutExpired:
+                    fail(f"compiling build/wsl1-ofd-lock-shim.c with {cc} timed out")
+                    r = None
+                if r is not None and r.returncode != 0:
+                    diag = (r.stderr or r.stdout or "").strip().splitlines()
+                    fail(
+                        f"build/wsl1-ofd-lock-shim.c does not compile ({cc} exit "
+                        f"{r.returncode}): {diag[0] if diag else 'no diagnostic'}"
+                    )
+                elif r is not None:
+                    # Compiling is not enough. If the overrides are not exported
+                    # there is no interposition at all, and the build fails later
+                    # with the original /etc/passwd error while looking as though
+                    # a shim had been installed.
+                    nm = shutil.which("nm")
+                    want = ("take_etc_passwd_lock", "take_etc_shadow_lock", "fcntl")
+                    if not nm:
+                        warn("no `nm` on this host; shim exports not verified")
+                    else:
+                        n = subprocess.run(
+                            [nm, "-D", "--defined-only", so],
+                            capture_output=True, text=True, timeout=60,
+                        )
+                        absent = [w for w in want if w not in n.stdout]
+                        if absent:
+                            fail(
+                                "the compiled OFD-lock shim does not export "
+                                f"{', '.join(absent)}. Without those symbols there is no "
+                                "interposition, so the build would fail later with the "
+                                "original /etc/passwd error while appearing to have a shim."
+                            )
+                        else:
+                            ok(f"OFD-lock shim compiles and exports its overrides ({cc})")
+
 
 # --------------------------------------------------------------------------- #
 # CHECK 8 — tool manifest integrity
@@ -692,6 +887,139 @@ def check_manifest() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# CHECK 9 — profile <-> flavor wiring
+# --------------------------------------------------------------------------- #
+# profiles/*.yaml and build/flavors/*.pkgs are two independent descriptions of
+# the same user-facing choice. They drifted: the profiles had no field naming
+# their build flavor at all, the names disagreed (profile `daily-driver` vs
+# flavor `daily`, profile `privacy-max` vs flavor `ghost`), and seven list
+# elements packed several packages into one string. Nothing detected any of it,
+# because nothing checked.
+
+
+def check_profile_flavor_wiring() -> None:
+    print("\n[9/9] profile <-> flavor wiring")
+    try:
+        import yaml
+    except ImportError:
+        warn("PyYAML not installed; skipping profile checks")
+        return
+
+    flavor_dir = os.path.join(ROOT, "build", "flavors")
+    if not os.path.isdir(flavor_dir):
+        fail("build/flavors/ is missing; there are no flavors to map onto")
+        return
+    flavors = {
+        f[: -len(".pkgs")]
+        for f in os.listdir(flavor_dir)
+        if f.endswith(".pkgs") and f != "common.pkgs"
+    }
+    if not flavors:
+        fail("build/flavors/ contains no flavor package lists")
+        return
+
+    pdir = os.path.join(ROOT, "profiles")
+    if not os.path.isdir(pdir):
+        fail("profiles/ is missing; the first-boot wizard has nothing to offer")
+        return
+
+    mapped: dict[str, str] = {}
+    for fn in sorted(os.listdir(pdir)):
+        if not fn.endswith((".yaml", ".yml")):
+            continue
+        path = os.path.join(pdir, fn)
+        # \t is a literal tab, which YAML forbids for indentation. Reject it with
+        # the line number rather than letting the parser emit a message that
+        # points at the wrong place (it reported lines 13-14 for a tab on 12).
+        raw = open(path, encoding="utf-8").read()
+        for i, line in enumerate(raw.splitlines(), 1):
+            if line.startswith("\t") or (line[: len(line) - len(line.lstrip())].count("\t")):
+                fail(f"profiles/{fn}:{i}: leading tab. YAML forbids tabs for indentation.")
+                break
+        try:
+            doc = yaml.safe_load(raw)
+        except Exception as e:  # noqa: BLE001
+            fail(f"profiles/{fn}: YAML parse: {e}")
+            continue
+        if not isinstance(doc, dict):
+            fail(f"profiles/{fn}: top level is {type(doc).__name__}, not a mapping")
+            continue
+
+        name = doc.get("name")
+        flavor = doc.get("flavor")
+
+        if not name:
+            fail(f"profiles/{fn}: no `name:` key")
+            continue
+        if not flavor:
+            fail(
+                f"profiles/{fn}: no `flavor:` key. Nothing machine-readable ties this "
+                f"profile to a build flavor, so the picker can offer a choice the "
+                f"build cannot produce. (Note the names differ on purpose: profile "
+                f"`privacy-max` is flavor `ghost`, profile `daily-driver` is flavor "
+                f"`daily`.)"
+            )
+            continue
+        if flavor not in flavors:
+            fail(
+                f"profiles/{fn}: flavor '{flavor}' has no build/flavors/{flavor}.pkgs. "
+                f"Known flavors: {sorted(flavors)}"
+            )
+            continue
+        if flavor in mapped:
+            fail(
+                f"profiles/{fn} and profiles/{mapped[flavor]} both claim flavor "
+                f"'{flavor}'; the wizard would offer the same image twice."
+            )
+            continue
+        mapped[flavor] = fn
+
+        # A list element holding several whitespace-separated names is the
+        # signature of the bug: it only works for a consumer that word-splits,
+        # and silently mis-installs for one that does not.
+        for entry in doc.get("packages") or []:
+            names = str(entry).split()
+            if len(names) > 1:
+                fail(
+                    f"profiles/{fn}: package entry {entry!r} packs {len(names)} "
+                    f"packages into one list element ({', '.join(names)}). One "
+                    f"package per element, or the consumer guesses."
+                )
+
+        # Dead-init advert: runit/s6 came with the dropped multi-base design.
+        if str(doc.get("init", "")).strip() not in ("", "systemd"):
+            fail(
+                f"profiles/{fn}: init={doc.get('init')!r}. ADR-0001 dropped the "
+                f"multi-base design; there is no runit/s6 variant of this image, "
+                f"so advertising one is a promise nothing can keep."
+            )
+
+    missing = sorted(flavors - set(mapped))
+    if missing:
+        fail(
+            f"no profile offers build flavor(s) {missing}. A flavor the build can "
+            f"produce but no wizard can select is either dead code or a missing "
+            f"profile; decide which."
+        )
+    else:
+        ok(f"all {len(flavors)} build flavors are offered by exactly one profile")
+
+    # The Pentester flavor must not gain offensive tooling via a profile either.
+    pent = None
+    for fn, d in ((f, None) for f in os.listdir(pdir)):
+        if fn.startswith("pentester") and fn.endswith((".yaml", ".yml")):
+            pent = os.path.join(pdir, fn)
+    if pent:
+        doc = yaml.safe_load(open(pent, encoding="utf-8"))
+        named = {n for e in (doc.get("packages") or []) for n in str(e).split()}
+        bad = sorted(named & {"metasploit-framework", "hashcat", "john", "aircrack-ng"})
+        if bad:
+            fail(f"profiles/{os.path.basename(pent)} names offensive tooling: {bad}")
+        else:
+            ok("pentester profile names no offensive tooling")
+
+
+# --------------------------------------------------------------------------- #
 # self-test
 # --------------------------------------------------------------------------- #
 def self_test() -> int:
@@ -710,12 +1038,25 @@ def self_test() -> int:
          },
          ["debian-live", "chroot: true", "BOOTTEST_SOFT", "ghostjob", "grub.cfg", "devpts", "apparmor=0"]),
         ("stock-Debian-only boot test",
-         {"tests/boottest.sh": "grep -qE 'login:|Reached target' $LOG && exit 0\n"},
-         ["OBSIDIAN-OS-MARKER", "FORBIDDEN", "BOOTTEST_SOFT"]),
+         # boot-markers.conf and boottest-win.ps1 must be present or check 2
+         # returns early on the missing shared list, and the fixture then "fails"
+         # for a reason that has nothing to do with stock-Debian matching.
+         {"tests/boottest.sh": "grep -qE 'login:|Reached target' $LOG && exit 0\n",
+          "tests/boottest-win.ps1": "boot-markers.conf\n",
+          # A `required` list made of a stock-Debian console string, and no
+          # forbidden list at all. That is precisely the old soft gate: it
+          # cannot tell our image from vanilla Debian.
+          "tests/boot-markers.conf": "required\tReached target\nrequired\tlogin:\n"},
+         ["OBSIDIAN-OS-MARKER", "forbidden", "BOOTTEST_SOFT", "Reached target"]),
         ("CI flavor with no package list",
+         # build-iso.sh must be present: check_build_driver bails out on a
+         # missing driver before it ever reaches the flavor lookup, so without
+         # it this fixture was "caught" only by the unrelated missing-file
+         # checks and the assertion below is what finally exposed that.
          {".github/workflows/build-iso.yml": "jobs:\n  build-iso:\n    strategy:\n      matrix:\n        flavor: [nosuchflavor]\n",
+          "build/build-iso.sh": "cat > $STAGE/boot/grub/grub.cfg <<EOF\nlinux /live/vmlinuz quiet\nEOF\n",
           "build/flavors/common.pkgs": "systemd\n"},
-         ["nosuchflavor.pkgs"]),
+         ["nosuchflavor"]),
         ("manifest: unverified URL left in the build graph, missing status, "
          "undispatchable install method, and offensive tooling in the pentester flavor",
          {
@@ -742,6 +1083,84 @@ def self_test() -> int:
              "build/flavors/pentester.pkgs": "metasploit-framework\nhashcat\n",
          },
          ["unverified", "build_graph", "badmethod", "metasploit-framework"]),
+        ("profile <-> flavor wiring: profile with no flavor, a flavor nothing "
+         "offers, a packed package list, two profiles claiming one flavor, and a "
+         "dead-init advert",
+         {
+             "build/flavors/common.pkgs": "systemd\n",
+             "build/flavors/daily.pkgs": "live-boot\n",
+             "build/flavors/orphan.pkgs": "live-boot\n",
+             "profiles/nofavor.yaml": "name: no-flavor\npackages:\n  - live-boot\n",
+             "profiles/wrongflavor.yaml": "name: wrong\nflavor: nosuchflavor\n",
+             "profiles/packed.yaml": "name: packed\nflavor: daily\n"
+                                     "packages:\n  - \"vim tmux curl\"\n",
+             "profiles/dupA.yaml": "name: dup-a\nflavor: daily\n",
+             "profiles/dupB.yaml": "name: dup-b\nflavor: daily\n",
+             "profiles/deadinit.yaml": "name: dead-init\nflavor: orphan\ninit: runit\n",
+             "profiles/pentester.yaml": "name: pentester\nflavor: daily\n"
+                                        "packages:\n  - metasploit-framework\n",
+             # A tab where YAML expects a space. The parse error it produces
+             # points at the wrong line, so the check has to name the tab itself.
+             "profiles/tabbed.yaml": "name: tabbed\nflavor: orphan\npackages:\n\t- live-boot\n",
+         },
+         ["no `flavor:`", "nosuchflavor", "packs", "both claim flavor", "runit",
+          "no profile offers", "offensive", "leading tab"]),
+        ("OFD shim copied into the image, with no assertion that it was removed",
+         # The trigger token `ofd_locks_work` must be in real code, not a
+         # comment: the check reads comment-stripped source, so a fixture that
+         # only mentions it in a comment silently skips the whole block. That is
+         # what made this fixture "pass" with no relevant failure at all.
+         {
+             "build/flavors/common.pkgs": "systemd\n",
+             "build/wsl1-ofd-lock-shim.c": "int take_etc_passwd_lock(void){return 0;}\n",
+             "build/build-iso.sh": (
+                 "cat > $STAGE/boot/grub/grub.cfg <<EOF\nlinux /live/vmlinuz quiet\nEOF\n"
+                 + "ofd_locks_work() { return 1; }\n"
+                 + "cp $WORK/ofd/obsidian-ofd-shim.so $CHROOT/usr/lib/\n"
+             ),
+         },
+         ["never asserts it was removed"]),
+        ("OFD shim injected via LD_PRELOAD instead of ld.so.preload",
+         {
+             "build/flavors/common.pkgs": "systemd\n",
+             "build/wsl1-ofd-lock-shim.c": "int take_etc_passwd_lock(void){return 0;}\n",
+             "build/build-iso.sh": (
+                 "cat > $STAGE/boot/grub/grub.cfg <<EOF\nlinux /live/vmlinuz quiet\nEOF\n"
+                 + "ofd_locks_work() { return 1; }\n"
+                 + "echo 'still present in the image'\n"
+                 + "LD_PRELOAD=$WORK/ofd/obsidian-ofd-shim.so\n"
+             ),
+         },
+         ["LD_PRELOAD", "ld.so.preload"]),
+        ("OFD shim source exists but does not compile",
+         {
+             "build/flavors/common.pkgs": "systemd\n",
+             "build/build-iso.sh": (
+                 "cat > $STAGE/boot/grub/grub.cfg <<EOF\nlinux /live/vmlinuz quiet\nEOF\n"
+                 + "ofd_locks_work() { return 1; }\n"
+                 + "echo 'still present in the image' ld.so.preload\n"
+             ),
+             "build/wsl1-ofd-lock-shim.c": "this is not valid C at all ; ; ;\n",
+         },
+         ["does not compile"]),
+        ("boot marker that nothing ever echoes, and an emitter nothing invokes",
+         # Two ways to have the string in the tree without it ever reaching the
+         # serial log: only documentation mentions it, and an overlay script
+         # echoes it but no unit runs that script. Both make the gate
+         # unpassable, and neither is visible to a "does the string appear
+         # somewhere" check - the CI workflow alone satisfied that one.
+         {
+             "tests/boottest.sh": "grep -qF OBSIDIAN-OS-READY $LOG\n"
+                                  "# see docs for OBSIDIAN-OS-MARKER\n",
+             "tests/boottest-win.ps1": "boot-markers.conf\n",
+             "tests/boot-markers.conf": "required\tOBSIDIAN-OS-MARKER v1\n"
+                                        "required\tOBSIDIAN-OS-READY\n"
+                                        "forbidden\tWelcome to Debian\n",
+             "docs/NOTES.md": "the boot report should print OBSIDIAN-OS-MARKER\n",
+             "overlays/common/usr/local/sbin/obsidian-boot-report":
+                 "#!/bin/sh\necho \"OBSIDIAN-OS-MARKER v1\"\n",
+         },
+         ["echoes OBSIDIAN-OS-MARKER", "references it"]),
     ]
 
     bad = 0
@@ -765,21 +1184,38 @@ def self_test() -> int:
                 check_flavor_packages(online=False)
                 check_build_driver()
                 check_manifest()
+                check_profile_flavor_wiring()
             except Exception as e:  # noqa: BLE001
                 print(f"  \033[31mERROR\033[0m self-test '{name}' raised {e!r}")
                 bad += 1
                 ROOT, FAIL, WARN, OKS = keep
                 continue
             caught = len(FAIL)
+            blob = " || ".join(FAIL)
             ROOT, FAIL, WARN, OKS = keep
 
         if caught == 0:
             print(f"  \033[31mFAIL\033[0m  '{name}' -> 0 failures (validator is too lax)")
             bad += 1
             continue
-        print(f"  \033[32mok\033[0m    '{name}' -> {caught} failure(s) caught")
-        for f in FAIL[:0]:
-            pass
+
+        # A non-zero failure count is not enough. Every check runs against every
+        # fixture, so a fixture aimed at check 9 would "pass" if an unrelated
+        # check happened to notice something else about it -- which is how a
+        # gate can be dead code and still report green. Require the failures to
+        # actually mention what this fixture broke.
+        hit = [m for m in expect_any if m in blob]
+        if not hit:
+            print(
+                f"  \033[31mFAIL\033[0m  '{name}' -> {caught} failure(s) caught, but "
+                f"none mention any of {expect_any}.\n"
+                f"         The check that should have caught this did not; something "
+                f"else did."
+            )
+            bad += 1
+            continue
+        print(f"  \033[32mok\033[0m    '{name}' -> {caught} failure(s) caught, "
+              f"citing {hit}")
 
     print()
     if bad:
@@ -808,6 +1244,7 @@ def main() -> int:
     check_flavor_packages(online="--online" in sys.argv)
     check_build_driver()
     check_manifest()
+    check_profile_flavor_wiring()
 
     print(f"\n{len(OKS)} check(s) passed, {len(WARN)} warning(s), {len(FAIL)} failure(s)")
     if WARN:

@@ -3,28 +3,36 @@
 
 name: server
 label: Server (Self-Host / Gateway)
+flavor: server
 posture: hardened
 session: headless                # no desktop by default
-init: systemd                   # set "runit" or "s6" for minimal footprint
+# systemd, and only systemd. This field previously read
+# `init: systemd  # set "runit" or "s6" for minimal footprint`. Alternative
+# inits were part of the dropped multi-base design (ADR-0001); the single-base
+# decision means there is no runit/s6 variant to select.
+init: systemd
 footprint: minimal
 
 packages:
-  - obsidian-server-server      # metapackage: nginx/caddy, postgresql, sqlite,
-                                # docker, podman, netdata, core packages
+  - obsidian-server-server      # HOLLOW: installs a README and nothing else (Phase 2)
   - openssh-server
   - wireguard-tools
   - smartmontools
   - rsync
   - chrony
 
+# One-click enable via serverctl / Server Hub. These are NOT installed at
+# image build time: baking four internet-facing daemons into the base would
+# ship a large network-listening attack surface before the user asked for it.
+# They are installed on role enable. See manifests/tools.yaml server-stack.
 roles:                          # one-click enable via serverctl / Server Hub
   web: caddy                    # auto-TLS
-  database: postgresql-17
+  database: postgresql
   containers: podman            # rootless
-  nas: samba, nfs-kernel-server
+  nas: samba                    # + nfs-kernel-server
   reverse_proxy: caddy
-  dns: coreDNS
-  router: nftables-gw           # turns machine into gateway (opt-in, warns)
+  dns: bind9                    # a package, not the "coreDNS" container
+  router: nftables              # gateway mode, opt-in, warns
   vm_host: libvirt
 
 gui: server-hub                  # web dashboard (optional, on LAN only)

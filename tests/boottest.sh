@@ -15,6 +15,9 @@
 #                         that would indicate the debian-live action silently
 #                         replaced our rootfs with a vanilla one
 #
+# The markers themselves live in tests/boot-markers.conf, shared with
+# tests/boottest-win.ps1. See that file for why they are not inline.
+#
 # Usage: tests/boottest.sh <image.iso> [--timeout N] [--flavor F] [--keep-log]
 # Exit:  0 = all required checks passed, 1 = failure (log tail printed),
 #        2 = bad usage.
@@ -62,21 +65,29 @@ trap cleanup EXIT
 # --------------------------------------------------------------------------- #
 # required markers
 # --------------------------------------------------------------------------- #
-REQUIRED=(
-  "OBSIDIAN-OS-MARKER v1"   # proves our rootfs booted, not stock Debian
-  "OBSIDIAN-OS-READY"       # the report unit ran to completion
-  "OBSIDIAN-CHECK sysctl-overlay: present"
-  "OBSIDIAN-CHECK apparmor:"
-  "OBSIDIAN-CHECK firstboot:"
-)
-
-# Anti-regression: these are the fingerprints of the debos `debian-live`
-# action bug, where the built chroot was discarded and a vanilla Debian live
-# ISO was substituted. If any shows up, the image is a lie.
-FORBIDDEN=(
-  "Welcome to Debian"
-  "Debian GNU/Linux"
-)
+# Read from tests/boot-markers.conf so this gate and tests/boottest-win.ps1
+# cannot drift apart. A literal list here is how you end up with two different
+# definitions of "passes" on two different machines.
+MARKERS="$(dirname "$(readlink -f "$0")")/boot-markers.conf"
+if [ ! -r "$MARKERS" ]; then
+  echo "boottest: cannot read the marker list: $MARKERS" >&2
+  exit 2
+fi
+REQUIRED=()
+FORBIDDEN=()
+while read -r kind marker; do
+  case "$kind" in
+    required)  REQUIRED+=("$marker")  ;;
+    forbidden) FORBIDDEN+=("$marker") ;;
+  esac
+done < "$MARKERS"
+if [ "${#REQUIRED[@]}" -eq 0 ]; then
+  # An empty list would make every image "pass". That is the exact failure mode
+  # this file was written to remove, so refuse rather than proceed.
+  echo "boottest: $MARKERS lists no required markers; refusing to run a gate" \
+       "that cannot fail" >&2
+  exit 2
+fi
 
 # --------------------------------------------------------------------------- #
 # boot

@@ -3,24 +3,47 @@
 
 name: developer
 label: Developer
+flavor: developer
 posture: standard-plus
 session: obsidianwm
 channel: rolling
 footprint: full
 
+# One package per list element. The previous revision packed several packages
+# into single strings ("git curl wget jq"), which only worked by accident if a
+# consumer happened to word-split them; any consumer that treated each element
+# as one package name would have failed on all seven.
 packages:
-  - obsidian-desktop
+  - obsidian-desktop       # HOLLOW: installs a README and nothing else (Phase 2)
   - build-essential
-  - git curl wget jq
+  - git
+  - curl
+  - wget
+  - jq
   - podman
-  - docker.io docker-compose-v2
+  - docker.io
+  - python3-pip
+  - python3-venv
+  - nodejs
+  - npm
+  - golang
+  - rustc
+  - cargo
+  - gh
+  - obsidian-agent-cli     # HOLLOW: coding + automation agents (Phase 2)
+  - kubectl                # optional k8s tooling
+  - qemu-system-x86        # nested VMs / Cells
+
+# Not installable from the Debian suite. `pkg` resolves these through a
+# third-party channel after the user opts in; they are listed here so the
+# profile is complete, NOT so the build tries to apt them.
+#   code-oss  -> not in Debian (vscode builds its own .deb)
+#   act       -> nektos/act, a Go binary, no Debian package
+#   docker-compose-v2 -> no such trixie package; upstream ships a static binary
+third_party:
   - code-oss
-  - python3-pip python3-venv
-  - nodejs npm golang rustc cargo
-  - gh act
-  - obsidian-agent-cli    # coding + automation agents
-  - kubectl              # optional k8s tooling
-  - qemu-system-x86     # nested VMs / Cells
+  - act
+  - docker-compose-v2
 
 gui: true
 security:

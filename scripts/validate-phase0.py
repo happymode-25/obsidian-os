@@ -58,6 +58,11 @@ REQUIRED = [
     "build/flavors/server.pkgs",
     "build/flavors/developer.pkgs",
     "build/flavors/pentester.pkgs",
+    # WSL1 lacks F_OFD_SETLK, so systemd cannot configure without this. It is a
+    # required deliverable, not an optional extra: deleting it breaks the build
+    # on every WSL1 host, and the failure is a confusing dpkg error rather than
+    # a missing file.
+    "build/wsl1-ofd-lock-shim.c",
     "scripts/validate-build.py",
     "scripts/debos-actions.json",
     # --- overlays (moved out of debos/overlays-src) -------------------------
@@ -102,6 +107,11 @@ REQUIRED = [
     "debos/installer/modules/bootloader.conf",
     "debos/installer/modules/users.conf",
     "tests/boottest.sh",
+    # The shared marker list is the gate. It is a separate file because
+    # boottest.sh and boottest-win.ps1 must agree; deleting it must fail this
+    # gate rather than leave two runners free to drift apart.
+    "tests/boot-markers.conf",
+    "tests/boottest-win.ps1",
     ".github/workflows/build-iso.yml",
     "tools/enable-wsl2.ps1",
     "LICENSE",

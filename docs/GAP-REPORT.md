@@ -264,19 +264,160 @@ failing 20 minutes into a build.
 `docs/PLAN.md` boot marker still read `AEGIS-free obsidian.target reached` — a
 leftover from the project's previous name. Anything matching that string is dead.
 
+## 11. The build host could not configure systemd at all (WSL1)
+
+Found only by actually running the build, which is the argument for running it.
+
+### 11.1 The failure
+
+With the new pipeline in place, the bootstrap got as far as unpacking 128
+packages and then died at the last step:
+
+```
+Initializing machine ID from random generator.
+Failed to take /etc/passwd lock: Invalid argument
+dpkg: error processing package systemd (--configure):
+ installed systemd package post-installation script subprocess returned error exit status 1
+```
+
+The `Failed to take /etc/passwd lock` line comes from `systemd-sysusers`, run by
+systemd's maintainer script. Found by grepping the chroot for the string; the
+only binary containing it is `/usr/bin/systemd-sysusers`.
+
+### 11.2 The cause: a syscall WSL1 does not implement
+
+Measured directly, not inferred:
+
+| lock API | wslfs | tmpfs |
+|---|---|---|
+| `flock(2)` | OK | OK |
+| `fcntl(F_SETLK)` | OK | OK |
+| `fcntl(F_OFD_SETLK)` | **EINVAL** | **EINVAL** |
+
+Open-file-description locks (Linux 3.15+) are unimplemented in WSL1's kernel
+emulation. Because tmpfs fails identically, **no mount arrangement works around
+it** — it is a missing kernel feature, not a filesystem property. The
+`/usr/local/sbin/wget` shim and apt timeouts fixed the *earlier* network stall;
+they are unrelated to this, and the two failures were easy to conflate.
+
+`systemd-sysusers` is not a corner case here: it runs from systemd's
+postinst, so *every* systemd package fails to configure, and the image never
+gets a `/boot` directory.
+
+### 11.3 The obvious fix does not work, and why
+
+The natural repair is an `LD_PRELOAD` shim that rewrites `F_OFD_*` to `F_*`.
+It was built, and it silently did nothing. Two rounds of diagnosis:
+
+- `systemd-sysusers` imports **no** `fcntl` symbol at all (`objdump -T`: 142
+  dynamic symbols, none matching). It imports `take_etc_passwd_lock`, and the
+  `fcntl` call is made from inside `libsystemd-shared`. A preloaded `fcntl` is
+  never consulted for a call originating in another shared object.
+- `strace` confirms the call and the mode: `fcntl(3, F_OFD_SETLKW,
+  {l_type=F_WRLCK, ...}) = -1 EINVAL`.
+
+So the shim overrides `take_etc_passwd_lock` (and its shadow/group/gshadow/
+subuid/subgid siblings) instead. Result: `dpkg --configure -a` exits 0, and the
+system users are genuinely created — `systemd-network` uid 998, `systemd-journal`
+gid 999.
+
+**A diagnostic note worth keeping:** two intermediate conclusions in this
+investigation were wrong and had to be discarded. `flock(2)` was suspected first
+(it works). "The binary imports no `fcntl`" was then read as "it must use a raw
+`syscall` instruction" — but that reading came from an `objdump` that was not
+actually installed, and its empty output had been swallowed by `2>/dev/null`.
+The measurement was only trustworthy after the tool was confirmed present.
+
+### 11.4 What ships, and what must not
+
+The shim is a property of the **build host**, not of the distribution. It is
+installed via an mmdebstrap setup hook (so it is in place before the stage that
+configures packages) and removed by a customize hook. `build/build-iso.sh` then
+*asserts* the file is absent from the chroot, because "the hook should have
+worked" is not a check: an ISO that shipped this shim would preload a lock-stub
+into every process on first boot, including anything the user installs later.
+
+The shim only ever changes the answer to "did you get the lock?" — never the
+writes that follow. The writes are the package's own. This is sound during
+package configuration because dpkg holds the exclusive database lock and the
+chroot is private to the build, so there is no second writer to exclude.
+
+The host is **probed**, not pattern-matched, so a normal Linux build host never
+compiles or installs any of it.
+
+### 11.5 The real fix is still WSL2
+
+This shim is a workaround for a missing kernel feature. WSL2 runs a real kernel
+and needs none of it. `tools/enable-wsl2.ps1` exists but requires elevation and
+a reboot, so it is the user's call, not something to attempt from a
+non-administrator session.
+
+### 11.6 Proven in the real pipeline, and what stopped it next
+
+The shim was first verified in isolation, then exercised by an actual build run.
+That run is worth recording precisely, because where it stopped is not where the
+diagnosis predicted it would.
+
+The build downloaded 155 MB, unpacked the base, and reached the stage that
+configures packages — the stage the shim exists for. `systemd-sysusers` acquired
+the `/etc/passwd` lock and did its real work:
+
+```
+Creating group 'systemd-journal' with GID 999.
+Creating group 'systemd-network' with GID 998.
+Creating user 'systemd-network' (systemd Network Management) with UID 998 and GID 998.
+```
+
+and left a real `/etc/machine-id`. Those accounts cannot exist unless the lock
+was genuinely taken, so the shim is confirmed working **inside the pipeline**,
+not just in a hand-run test. The users are the package's own, not synthesised.
+
+The run then failed on something unrelated:
+
+```
+Failed to backup /etc/group: Cannot allocate memory
+dpkg: error processing package systemd (--configure)
+```
+
+That is `ENOMEM` from the host. Measured at the time: 15,940 MB of 16,259 MB
+used, **318 MB available**, with 44 GB of swap untouched. Not a defect in the
+image or the pipeline — a resource ceiling on the machine. A `useradd` that
+cannot allocate memory for a file the size of `/etc/group` is not a memory bug
+in `useradd`; the process simply had nothing left to be given.
+
+So: the WSL1 blocker is genuinely solved, and the next blocker is the build
+host's memory. Recorded here rather than left as an unexplained failure, because
+"the build broke" and "the build host ran out of memory" lead to completely
+different next actions.
+
+Note also that the shim was still present in the aborted chroot. That is correct:
+mmdebstrap died before the customize hook could run, and the tree is discarded
+rather than sealed. The post-bootstrap assertion in `build/build-iso.sh` is what
+guarantees a *successful* build cannot ship it.
+
 ---
 
 ## Status after this pass
 
 | Area | Before | After |
 |---|---|---|
-| ISO pipeline | unbuildable | builds; boot-tested (see `docs/BUILD.md`) |
-| Boot gate | could not fail | strict, self-verified |
+| ISO pipeline | unbuildable | runs; configures packages — **blocked on host memory, no ISO produced yet** |
+| Boot gate | could not fail | strict, self-verified, markers shared with the Windows runner — **never executed against an image** |
 | Hardening overlay | 3 real rule-order bugs | fixed + documented |
 | Ghost overlay | README only | 6 real files |
 | Ghost threat model | implied total wipe | stated, with limits |
-| CI | dead job, soft gate, discarded artifact | real pipeline, no soft mode |
+| CI | dead job, soft gate, discarded artifact | real pipeline, no soft mode — **never run** |
+| WSL1 / `/etc/passwd` lock | build impossible | shim proven in the real pipeline (§11.6) |
 | Metapackages | hollow | still hollow — **Phase 2, not fixed** |
 | Desktop shell | absent | still absent — **Phase 2, not fixed** |
-| `tools.yaml` URLs | 13+ fabricated | **not yet corrected** |
-| Missing manifest tiers | ~70% of brief | **not yet added** |
+| Hardened kernel | specified, never compiled | still not built; image ships stock trixie |
+| `tools.yaml` URLs | 16 fabricated | marked `unverified` + excluded, not guessed |
+| Missing manifest tiers | ~70% of brief | added (tiers 11.6/11.7/11.10/11.11) |
+| Profile↔flavor mapping | none, and names disagreed | `flavor:` key + enforced by `validate-build.py` |
+| Build host vs WSL1 | unbuildable, undiagnosed | OFD-lock shim, gated on a capability probe |
+
+**The honest summary: no ISO has ever been produced by this repository.** The
+pipeline is written, syntax-clean and semantically gated, but the boot test and
+the CI matrix remain entirely unexercised. Everything after "the bootstrap
+completes" is unproven.
+

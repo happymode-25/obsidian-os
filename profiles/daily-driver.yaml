@@ -3,22 +3,39 @@
 
 name: daily-driver
 label: Daily Driver
+
+# Which build flavor this profile corresponds to. This mapping is NOT the same
+# as `name` and did not exist until Phase 1: the build driver takes
+# `--flavor daily` while this profile is called `daily-driver`, and the ghost
+# profile is called `privacy-max` while its flavor is `ghost`. Without this
+# field nothing machine-readable connects the two, so the profile picker can
+# offer a choice the build cannot honour.
+# Enforced by scripts/validate-build.py (check 9).
+flavor: daily
+
 posture: standard
 session: obsidianwm        # full Wayland desktop
 channel: rolling           # or stable
 footprint: full
 
 packages:
-  - obsidian-desktop
-  - obsidian-apps-extra
+  - obsidian-desktop       # HOLLOW: installs a README and nothing else (Phase 2)
+  - obsidian-apps-extra    # HOLLOW (Phase 2)
   - firefox-esr
   - libreoffice
   - gimp
   - vlc
   - flatpak
   - wine64
-  - gamescope
+
+# Not installable from the Debian suite (verified against the trixie index).
+#   steam     -> non-free in spirit; Valve does not permit Debian redistribution
+#   gamescope -> no trixie package; flatpak or a third-party repo
+# Both are common enough on a "daily driver" that omitting them silently would
+# misrepresent the profile, so they are declared separately rather than dropped.
+third_party:
   - steam
+  - gamescope
 
 gui: true
 security:
