@@ -1,0 +1,19 @@
+[Unit]
+Description=Obsidian OS boot attestation report
+Documentation=file:///usr/share/doc/obsidian-core/README.md
+# After networking is up so the leak guard has been evaluated, but before we
+# declare the target reachable.
+After=systemd-networkd.service nftables.service systemd-resolved.service
+Wants=nftables.service
+DefaultDependencies=no
+After=basic.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/obsidian-boot-report
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

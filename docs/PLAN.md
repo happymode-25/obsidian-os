@@ -21,55 +21,74 @@
 
 ---
 
-## Phase 0 — Foundation (spec + scaffold) — *in progress*
+## Phase 0 — Foundation (spec + scaffold) — *done, but overstated*
 
-Turn the brief into files. Everything is static today and therefore fully
-deliverable on any host.
+Turn the brief into files.
+
+> **Correction (2026-09-27).** This phase was previously marked complete and
+> partially was not. The ISO recipe could not build, its `run` actions executed on
+> the build host instead of the image, four of six overlay directories did not
+> exist, the Ghost overlay was a single README, and the boot test could not
+> distinguish the project's image from stock Debian. Full evidence and remediation
+> in **[`GAP-REPORT.md`](GAP-REPORT.md)**. The statuses below have been corrected
+> to match the code rather than the original claim.
 
 | # | Task | Deliverable | Status |
 |---|------|-------------|--------|
-| 0.1 | System/index | `README.md` | ✅ done |
+| 0.1 | System/index | `README.md` | ✅ done (rewritten to state real status) |
 | 0.2 | Architecture spec + diagrams | `docs/ARCHITECTURE.md` | ✅ done |
 | 0.3 | Master plan | `docs/PLAN.md` | ✅ done |
-| 0.4 | Build host + ISO instructions | `docs/BUILD.md` | ✅ done |
-| 0.5 | Build recipe (debos, Debian) + Arch secondary | `debos/obsidian.yaml`, `debos/arch/obsidian-arch.yaml` | ✅ done |
-| 0.6 | Hardening overlays (sysctl/nft/AppArmor/killswitch/ghost) | `debos/overlays-src/**` | ✅ done |
-| 0.7 | Build scripts (overlay packer / profile / services / finalize) | `scripts/make-overlays.sh`, `apply-profile.sh`, `enable-services.sh`, `finalize.sh`, `arch-install.sh` | ✅ done |
+| 0.4 | Build host + ISO instructions | `docs/BUILD.md` | ✅ done (rewritten for the new pipeline) |
+| 0.5 | Build recipe | ~~`debos/obsidian.yaml`~~ → `build/build-iso.sh` | 🔴 **was unbuildable** — removed, replaced |
+| 0.5b | Arch secondary base | ~~`debos/arch/obsidian-arch.yaml`~~ | 🔴 **removed** — same bugs; a second base contradicts the one-base decision |
+| 0.6 | Hardening overlays (sysctl/nft/AppArmor/killswitch/ghost) | `overlays/common/**`, `overlays/ghost/**` | 🟡 **3 real rule-order bugs fixed**; Ghost was a README, now real files |
+| 0.7 | Build scripts | `build/build-iso.sh` | 🔴 **3 removed** (build-time-only, superseded); `apply-profile.sh` + `finalize.sh` kept — they run *in-image* from the firstboot wizard |
 | 0.8 | Profiles (5) | `profiles/*.yaml` | ✅ done |
-| 0.9 | Tool manifest (53 tools) | `manifests/tools.yaml` | ✅ done |
+| 0.9 | Tool manifest | `manifests/tools.yaml` | 🟡 **53 tools listed, ~13 URLs fabricated; tiers 11.6/11.7/11.9–11.11 missing** |
 | 0.10 | Unified shell configs + spec | `shell/**`, `docs/UNIFIED-SHELL.md` | ✅ done |
 | 0.11 | `pkg` + firstboot wizard | `scripts/pkg`, `scripts/firstboot-wizard` | ✅ done |
-| 0.12 | Security Center + AI Assistant design | `apps/security-center/**`, `apps/ai-assistant/**`, `docs/APPS.md` | ✅ done |
+| 0.12 | Security Center + AI Assistant design | `apps/**`, `docs/APPS.md` | ✅ design only — not built |
 | 0.13 | CIS hardening checklist | `docs/HARDENING.md` | ✅ done |
 | 0.14 | Roadmap + legal notes | `docs/ROADMAP.md`, `docs/LEGAL.md` | ✅ done |
-| 0.15 | CI/CD ISO pipeline + QEMU boot test | `.github/workflows/build-iso.yml`, `tests/boottest.sh` | ✅ done |
+| 0.15 | CI/CD ISO pipeline + QEMU boot test | `.github/workflows/build-iso.yml`, `tests/boottest.sh` | 🔴 **rewritten** — old CI uploaded an artifact nothing consumed and ran a tautological gate |
 | 0.16 | Upstream component map | `docs/COMPONENT-SOURCES.md` | ✅ done |
-| 0.17 | Metapackage skeletons (dpkg) | `debos/packages/**` | ✅ done |
+| 0.17 | Metapackage skeletons (dpkg) | `debos/packages/**` | 🟡 **hollow** — install a README and nothing else; not in the image |
 
-**Gate (end of Phase 0):** ✅ PASSED — every file above exists; YAML lints;
-debos recipes parse (Go-template-aware); shell scripts pass `bash -n`
-(enforced on Linux/CI; warned on hosts without WSL); nft ruleset is parse-tested
-in CI. Re-run any time with `python3 scripts/validate-phase0.py`.
+**Gate (end of Phase 0):** PASS — but the gate itself was the problem. The old
+`validate-phase0.py` only checked existence and syntax, so it reported PASS on an
+unbuildable repository. The replacement, `validate-build.py`, checks pipeline
+*semantics* and ships with `--self-test` to prove it can fail. Run both:
+
+```bash
+python3 scripts/validate-build.py --self-test
+python3 scripts/validate-build.py --online
+python3 scripts/validate-phase0.py
+```
 
 ---
 
-## Phase 1 — Foundry: build the ISO on CI (the "make it real" phase)
+## Phase 1 — Foundry: build the ISO (the "make it real" phase)
 
-Goal: push `obsidian.yaml` through debos on a Linux runner and get a bootable ISO
-in QEMU, regardless of the desktop polish level.
+Goal: a bootable ISO that passes a strict boot test, regardless of desktop polish.
 
 | # | Task | Deliverable | Gate |
 |---|------|-------------|------|
-| 1.1 | CI runner + debos container pin | `.github/workflows/build-iso.yml` | job `build-iso` green |
-| 1.2 | Metapackages (`obsidian-core`, `obsidianwm`, `obsidian-panel`, …) | `debos/packages/*/debian/` skeletons | `dpkg-buildpackage -b` passes |
-| 1.3 | First bootable ISO (daily flavor, GNOME-less minimal session) | `artifacts/obsidian-daily-*.iso` | boots in QEMU to `obsidian.target` |
-| 1.4 | Encrypted install path | `debos/installer/` (calamares-flavored config) | install-to-2-disks scripted test |
-| 1.5 | Secure Boot + UKI + TPM2 story | `debos/overlays-src/common/etc/obsidian/bootkeys/` | VM boots with SB on + LUKS2 TPM2 unlock |
-| 1.6 | Server & ghost flavors boot | `-t flavor:server/ghost` | QEMU boots, correct services listed |
+| 1.1 | Build driver + CI | `build/build-iso.sh`, `.github/workflows/build-iso.yml` | `build-iso` job green |
+| 1.2 | Metapackages | `debos/packages/*/debian/` | ⚠️ hollow — real content is Phase 2 |
+| 1.3 | First bootable ISO (daily) | `build/out/obsidian-daily-*.iso` | ✅ boots, emits `OBSIDIAN-OS-READY` |
+| 1.4 | Ghost flavor boots | `obsidian-ghost-*.iso` | boots with volatile journal + tmpfs overlay |
+| 1.5 | Encrypted install path | `debos/installer/` (calamares-flavored config) | ⬜ not started |
+| 1.6 | Secure Boot + UKI + TPM2 | `scripts/boot-keys.sh` exists; **not wired into the image** | ⬜ not started |
+| 1.7 | Hardened kernel in the image | `scripts/build-kernel.sh` exists; **orphaned** | ⬜ not started — image boots stock Debian kernel |
 
-**Gate:** three CI matrix jobs (daily/server/ghost) produce ISOs; QEMU boot test
-asserts: serial marker `AEGIS-free obsidian.target reached`, firewall table loaded,
-`securityctl status` reports posture.
+**Gate:** the `daily` and `ghost` matrix jobs produce ISOs, and the boot test
+asserts on `OBSIDIAN-OS-MARKER` / `OBSIDIAN-OS-READY` plus per-subsystem
+attestation (`sysctl-overlay`, `nftables-table`, `apparmor`, `aslr`, `firstboot`),
+and **fails** if stock-Debian fingerprints appear.
+
+> The previous gate asserted the serial marker `AEGIS-free obsidian.target
+> reached`. That string was a leftover from the project's former name, and no
+> component ever emitted it. It is gone.
 
 ---
 

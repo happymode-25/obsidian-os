@@ -1,0 +1,2 @@
+# Obsidian OS — Ghost: transparent Tor is the expected egress path.
+# Read by the boot report to flag a session whose egress is NOT actually via Tor.

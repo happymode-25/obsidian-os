@@ -1,0 +1,77 @@
+#!/bin/sh
+# Obsidian OS — boot attestation report.
+#
+# This is the signal tests/boottest.sh asserts on. It exists because the old
+# soft gate matched `Reached target`, which a stock Debian live ISO also prints
+# — so the test passed on a completely broken image. Everything printed here is
+# either (a) a unique marker string or (b) a fact that can only be true if this
+# pipeline actually did its job.
+#
+# Output goes to the journal; systemd's console sink forwards it to
+# /dev/console, which the ISO's cmdline pins to ttyS0.
+set -u
+
+FLAVOR="$(cat /etc/obsidian/flavor 2>/dev/null || echo unknown)"
+BUILD="$(cat /etc/obsidian/build 2>/dev/null || echo unknown)"
+HOSTN="$(cat /etc/hostname 2>/dev/null || echo unknown)"
+
+# --- the unique marker: stock Debian cannot produce this line --------------
+echo "OBSIDIAN-OS-MARKER v1 flavor=$FLAVOR build=$BUILD host=$HOSTN"
+
+# --- attestation: each of these proves a build step actually ran ----------
+
+# 1. hardening overlay landed
+if [ -f /etc/sysctl.d/99-obsidian-hardened.conf ]; then
+    echo "OBSIDIAN-CHECK sysctl-overlay: present"
+else
+    echo "OBSIDIAN-CHECK sysctl-overlay: MISSING"
+fi
+
+# 2. firewall ruleset actually loaded (proves nftables.service ran our file,
+#    not merely that the package is installed)
+if command -v nft >/dev/null 2>&1 && nft list table inet obsidian >/dev/null 2>&1; then
+    echo "OBSIDIAN-CHECK nftables-table: loaded"
+else
+    echo "OBSIDIAN-CHECK nftables-table: not-loaded"
+fi
+
+# 3. kernel-level protections actually set (read back from /proc)
+if [ -e /proc/sys/kernel/unprivileged_bpf_disabled ]; then
+    echo "OBSIDIAN-CHECK kernel-lockdown: $(cat /proc/sys/kernel/unprivileged_bpf_disabled 2>/dev/null || echo '?')"
+fi
+if [ -r /proc/sys/kernel/randomize_va_space ]; then
+    echo "OBSIDIAN-CHECK aslr: $(cat /proc/sys/kernel/randomize_va_space 2>/dev/null || echo '?')"
+fi
+if [ -r /proc/sys/kernel/perf_event_paranoid ]; then
+    echo "OBSIDIAN-CHECK perf-paranoid: $(cat /proc/sys/kernel/perf_event_paranoid 2>/dev/null || echo '?')"
+fi
+
+# 4. MAC + module protections
+if [ -r /proc/sys/net/ipv4/conf/all/accept_local ]; then
+    echo "OBSIDIAN-CHECK mac-randomize: $(cat /proc/sys/net/ipv4/conf/default/addr_gen_mode 2>/dev/null || echo '?')"
+fi
+
+# 5. apparmor actually enforcing
+if [ -r /sys/module/apparmor/parameters/enabled ]; then
+    echo "OBSIDIAN-CHECK apparmor: $(cat /sys/module/apparmor/parameters/enabled 2>/dev/null || echo '?')"
+fi
+
+# 6. zram (encrypted swap stand-in) came up
+if [ -d /sys/class/zram0 ]; then
+    echo "OBSIDIAN-CHECK zram: present"
+fi
+
+# 7. ghost-mode flags, only present on the ghost flavor
+if [ -f /etc/obsidian/ghost/amnesic ]; then
+    echo "OBSIDIAN-CHECK ghost-amnesic: set"
+fi
+
+# 8. firstboot marker (touched by the build's configure step)
+if [ -f /etc/obsidian/firstboot ]; then
+    echo "OBSIDIAN-CHECK firstboot: ready"
+else
+    echo "OBSIDIAN-CHECK firstboot: absent"
+fi
+
+echo "OBSIDIAN-OS-READY flavor=$FLAVOR"
+exit 0

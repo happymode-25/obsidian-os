@@ -42,27 +42,46 @@ REQUIRED = [
     "docs/ARCHITECTURE.md",
     "docs/PLAN.md",
     "docs/BUILD.md",
+    "docs/GAP-REPORT.md",
     "docs/COMPONENT-SOURCES.md",
     "docs/UNIFIED-SHELL.md",
     "docs/APPS.md",
     "docs/HARDENING.md",
     "docs/ROADMAP.md",
     "docs/LEGAL.md",
-    "debos/obsidian.yaml",
-    "debos/arch/obsidian-arch.yaml",
-    "debos/overlays-src/common/etc/sysctl.d/99-obsidian-hardened.conf",
-    "debos/overlays-src/common/etc/nftables.conf",
-    "debos/overlays-src/common/etc/apparmor.d/obsidianwm",
-    "debos/overlays-src/common/usr/local/sbin/obsidian-killswitch.sh",
-    "scripts/make-overlays.sh",
+    # --- build pipeline (replaced the unbuildable debos recipe) ------------
+    "build/build-iso.sh",
+    "build/flavors/common.pkgs",
+    "build/flavors/daily.pkgs",
+    "build/flavors/ghost.pkgs",
+    "build/flavors/server.pkgs",
+    "build/flavors/developer.pkgs",
+    "build/flavors/pentester.pkgs",
+    "scripts/validate-build.py",
+    "scripts/debos-actions.json",
+    # --- overlays (moved out of debos/overlays-src) -------------------------
+    "overlays/common/etc/sysctl.d/99-obsidian-hardened.conf",
+    "overlays/common/etc/nftables.conf",
+    "overlays/common/etc/apparmor.d/obsidianwm",
+    "overlays/common/usr/local/sbin/obsidian-killswitch.sh",
+    "overlays/common/usr/local/sbin/obsidian-boot-report",
+    "overlays/common/etc/systemd/system/obsidian-boot-report.service",
+    "overlays/common/etc/obsidian/kernel/hardened.config",
+    "overlays/ghost/etc/obsidian/ghost/amnesic",
+    "overlays/ghost/etc/obsidian/ghost/cmdline.extra",
+    "overlays/ghost/etc/obsidian/ghost/egress.nft",
+    "overlays/ghost/etc/systemd/journald.conf.d/volatile.conf",
+    "overlays/ghost/usr/lib/systemd/system-shutdown/obsidian-memwipe.sh",
+    # --- in-image scripts (called by scripts/firstboot-wizard) -------------
     "scripts/apply-profile.sh",
-    "scripts/enable-services.sh",
     "scripts/finalize.sh",
     "scripts/firstboot-wizard",
     "scripts/pkg",
-    "scripts/arch-install.sh",
     "scripts/usb-maker",
     "scripts/restorectl",
+    "scripts/scaffold-packages.py",
+    "scripts/boot-keys.sh",
+    "scripts/build-kernel.sh",
     "profiles/daily-driver.yaml",
     "profiles/developer.yaml",
     "profiles/pentester.yaml",
@@ -81,22 +100,37 @@ REQUIRED = [
     "debos/installer/modules/partition.conf",
     "debos/installer/modules/bootloader.conf",
     "debos/installer/modules/users.conf",
-    "scripts/scaffold-packages.py",
-    "scripts/boot-keys.sh",
-    "scripts/build-kernel.sh",
-    "scripts/apt-update.sh",
-    "debos/overlays-src/common/etc/apt/sources.list.d/obsidian-local.list",
-    "debos/packages/obsidian-kernel/debian/control",
-    "debos/overlays-src/common/etc/obsidian/kernel/hardened.config",
     "tests/boottest.sh",
     ".github/workflows/build-iso.yml",
+    "tools/enable-wsl2.ps1",
     "LICENSE",
 ]
+# Files that used to be required and were deliberately removed. If any of these
+# come back, the deletion was reverted by accident and the gate should say so.
+RETIRED = {
+    "debos/obsidian.yaml": "unbuildable (debian-live action removed upstream; run actions unchrooted)",
+    "debos/arch/obsidian-arch.yaml": "same bug class, plus a second base contradicts the one-base decision",
+    "scripts/make-overlays.sh": "build-time only; replaced by build/build-iso.sh",
+    "scripts/apt-update.sh": "build-time only; build-iso.sh runs apt inside the chroot directly",
+    "scripts/enable-services.sh": "enabled a dozen units that did not exist; build-iso.sh enables only what it installs",
+    "scripts/arch-install.sh": "only called by the deleted Arch recipe",
+    "debos/overlays-src": "moved to overlays/ at the repo root",
+    "debos/components.lock": "placeholder guarding the deleted debos recipe",
+}
 missing = [f for f in REQUIRED if not os.path.exists(os.path.join(ROOT, f))]
 if missing:
     FAIL.append("missing deliverables: " + ", ".join(missing))
 else:
     note(f"all {len(REQUIRED)} deliverables present")
+
+resurrected = [f for f in RETIRED if os.path.exists(os.path.join(ROOT, f))]
+if resurrected:
+    FAIL.append(
+        "retired files are present again: " + ", ".join(sorted(resurrected))
+        + " — see the RETIRED table in this script for why they were removed"
+    )
+else:
+    note(f"all {len(RETIRED)} retired files stay retired")
 
 # ---------------------------------------------------------------------- 2
 print("[2/4] YAML parse")

@@ -1,0 +1,9 @@
+# Obsidian OS — Daily Driver flavor additions.
+#
+# Applied on top of common.pkgs. Intentionally conservative for first-light:
+# a working console + the real hardening stack, no desktop session yet.
+# The Windows-feel desktop is Phase 2 (see docs/ROADMAP.md) and is NOT
+# preinstalled here — see docs/GAP-REPORT.md for why the previous
+# `obsidian-desktop` metapackage shipped nothing.
+foot
+fbterm

@@ -1,0 +1,22 @@
+# Obsidian OS — Ghost: extra kernel command line.
+# Appended to the `linux` line in the generated grub.cfg by build/build-iso.sh
+# when this flavor is built. One setting per line; `#` comments allowed.
+#
+# overlay=tmpfs is the load-bearing one: it forces the live session's writable
+# layer into RAM, so the squashfs on the boot medium is never written to. That,
+# plus no persistent partitions, is what "amnesic" actually buys.
+rd.live.overlay.overlayfs=1
+overlay=tmpfs
+
+# lock down the kernel: no unprivileged kernel module loading, no I/O port
+# access, device cgroup enforcement. lockdown=confidentiality blocks /dev/mem
+# entirely, which is why the memwipe hook cannot pretend to scrub RAM.
+lockdown=confidentiality
+lsm=lockdown,apparmor,yama,landlock
+amd_iommu=on
+
+# no IPv6: leaks the network prefix and is not routed by Tor
+ipv6.disable=1
+
+# quieter, earlier, more deterministic boot for a RAM-resident session
+quiet loglevel=3

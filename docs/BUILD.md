@@ -1,159 +1,190 @@
-# Obsidian OS — Build Instructions
+# Obsidian OS — Build Guide
 
-Builds the Obsidian OS ISO from this repository on a Linux host (native or WSL2).
-CI equivalent in `.github/workflows/build-iso.yml`.
+The build pipeline is `build/build-iso.sh`: a plain, debuggable shell pipeline
+with no container and no image framework.
+
+```
+debootstrap  ->  install real packages  ->  apply overlays  ->  enable units
+             ->  update-initramfs        ->  mksquashfs     ->  grub-mkrescue
+```
+
+It replaces `debos/obsidian.yaml`, which could not build at all. If you are
+looking for why, read [`GAP-REPORT.md`](GAP-REPORT.md) — the short version is
+that the recipe used a debos action that no longer exists, its `run` actions all
+executed on the build host instead of the image, and the boot test could not
+distinguish the result from stock Debian.
 
 ---
 
-## 1. Host prerequisites
+## 1. Requirements
 
-- **OS:** Debian 12/13 (or Ubuntu 24.04+), x86_64. WSL2 (Debian/Ubuntu distro)
-  works with the same commands.
-- **Tools:**
-  - `debos` ≥ 1.1.14 (the only real requirement; provides `debian-live`)
-  - `qemu-utils` (live ISO packaging, disk images)
-  - `whois` (used by live-build for `mkpasswd` preseed hashes)
-  - `git`, `tar`
-- **Disk:** ~15 GB free. **Network:** Debian mirrors + GitHub.
+Build host (Debian or Ubuntu, **root** required):
 
-```bash
-sudo apt update
-sudo apt install -y debos qemu-utils whois git tar
-```
-
-> WSL2 note: run debos from inside the WSL distro, not through the Windows
-> PowerShell; keep the tree under `~/` (not `/mnt/c`) so filesystem semantics
-> are native and fast.
-
-## 2. Build the ISO
+| Tool | Debian/Ubuntu package |
+|---|---|
+| `debootstrap` | `debootstrap` |
+| suite signature keyring | `debian-archive-keyring` |
+| squashfs | `squashfs-tools` |
+| ISO + bootloader | `xorriso`, `mtools`, `dosfstools`, `grub2-common`, `grub-pc-bin`, `grub-efi-amd64-bin` |
+| unit management | `systemd` (for `systemctl --root`) |
 
 ```bash
-git clone https://github.com/YOUR-ORG/obsidian-os
-cd obsidian-os
-
-# Daily Driver base ISO
-debos -t flavor:daily debos/obsidian.yaml
-
-# Other flavors
-debos -t flavor:penta  debos/obsidian.yaml   # Pentester (tools still consent-gated)
-debos -t flavor:server debos/obsidian.yaml   # Headless server
-debos -t flavor:ghost  debos/obsidian.yaml   # Privacy-Max (amnesic live)
+sudo apt-get install -y debootstrap debian-archive-keyring squashfs-tools \
+  xorriso mtools dosfstools grub2-common grub-pc-bin grub-efi-amd64-bin systemd
 ```
 
-Output lands in `output/`:
+> `debian-archive-keyring` is not optional. Without it debootstrap cannot verify
+> the suite's `Release` signature and aborts with *"Failed getting release
+> file"*. The tempting workaround, `--no-check-gpg`, would disable signature
+> verification on the base image of a hardened distro. Install the keyring.
 
-```
-output/obsidian-daily-trixie-amd64.iso
-output/obsidian-penta-trixie-amd64.iso
-...
-```
+To boot-test the result: `qemu-system-x86`.
 
-Optional recipe variables (when not using a profile flavor):
+## 2. Build
 
 ```bash
-debos -t flavor:daily -t arch:amd64 -t release:trixie debos/obsidian.yaml
+sudo ./build/build-iso.sh --flavor daily
 ```
 
-Dry-run parse check (no root, no build):
+| Flag | Default | Notes |
+|---|---|---|
+| `--flavor` | *required* | `daily`, `developer`, `pentester`, `server`, `ghost` |
+| `--suite` | `trixie` | any suite `debootstrap` supports |
+| `--arch` | `amd64` | |
+| `--mirror` | `https://deb.debian.org/debian` | |
+| `--keep-chroot` | off | keep the tree on failure for debugging |
+| `--jobs` | `nproc` | squashfs threads |
+
+Output lands in `build/out/obsidian-<flavor>-<suite>-<arch>.iso`, BIOS + UEFI
+hybrid, built with `grub-mkrescue`.
+
+Roughly 10–20 minutes and ~4 GB of disk per flavor.
+
+## 3. How a flavor is defined
+
+A flavor is two files, and nothing else:
+
+- **`build/flavors/<flavor>.pkgs`** — extra packages on top of `common.pkgs`.
+- **`overlays/<flavor>/`** — optional files copied into the image root.
+
+`build/flavors/common.pkgs` applies to every flavor and is where the base system
+lives. `overlays/common/` likewise.
+
+A flavor can also carry `overlays/<flavor>/etc/obsidian/<flavor>/cmdline.extra`,
+one kernel flag per line. The build driver appends it to the generated
+`grub.cfg` `linux` line. This is how Ghost gets `overlay=tmpfs` and
+`lockdown=confidentiality` without touching the common config.
+
+To add a flavor: create the `.pkgs` file, optionally the overlay dir, and add it
+to the `validate` matrix in `.github/workflows/build-iso.yml`.
+`validate-build.py` check 7 fails if CI builds a flavor with no `.pkgs` file.
+
+## 4. Boot test
 
 ```bash
-debos --dry-run -t flavor:daily debos/obsidian.yaml
+bash tests/boottest.sh build/out/obsidian-daily-trixie-amd64.iso \
+  --flavor daily --timeout 600
 ```
 
-## 3. Verify the ISO boots (QEMU smoke test)
+The test boots the ISO under QEMU with `-accel tcg`, captures the serial console,
+and requires `OBSIDIAN-OS-READY`. That string is emitted only by
+`overlays/common/usr/local/sbin/obsidian-boot-report`, which runs as
+`obsidian-boot-report.service` and attests that the hardening actually took
+effect:
+
+```
+OBSIDIAN-OS-MARKER v1 flavor=daily build=trixie/amd64 host=obsidian-daily
+OBSIDIAN-CHECK sysctl-overlay: present
+OBSIDIAN-CHECK nftables-table: loaded
+OBSIDIAN-CHECK apparmor: Y
+OBSIDIAN-CHECK aslr: 2
+OBSIDIAN-CHECK firstboot: ready
+OBSIDIAN-OS-READY flavor=daily
+```
+
+It **fails** if the log contains `Welcome to Debian` or `Debian GNU/Linux` —
+those are the fingerprints of the old `debian-live` substitution, where the
+build "succeeded" by shipping a vanilla image.
+
+There is no soft mode. The previous test had one, and its success patterns
+(`login:`, `Reached target`, `tty[S0-9]`) are all printed by stock Debian, so it
+passed on a broken image. `validate-build.py` rejects the reintroduction of
+`BOOTTEST_SOFT` in the test or in CI.
+
+## 5. Validation gates
+
+Two scripts, and they answer different questions.
 
 ```bash
-sudo apt install -y qemu-system-x86
-bash tests/boottest.sh output/obsidian-daily-trixie-amd64.iso "obsidian.target reached" 240
+python3 scripts/validate-build.py --self-test   # proves the gate can fail
+python3 scripts/validate-build.py --online      # semantic checks + package index
+python3 scripts/validate-phase0.py              # deliverables exist and parse
 ```
 
-`tests/boottest.sh` boots the ISO headless, captures the serial console to a log,
-and exits 0 when the primary marker and any extra markers appear (default
-`obsidian.target reached`; CI also asserts `nftables: ruleset loaded`,
-`securityctl: posture`, `firstboot ready`), 1 on timeout. Expected before the
-markers:
+`validate-phase0.py` checks **existence and syntax**. It is not sufficient and was
+never sufficient — it printed `GATE: PASS` on a repo whose recipe could not
+build.
 
-- firewall table loaded (`nft -c` result logged at boot)
-- `securityctl status` answers (posture reflects the flavor)
-- shell prompt readable on the login console
+`validate-build.py` checks **meaning**: debos action vocabulary against upstream,
+`chroot: true` on every `run` action, boot-test strictness, CI artifact
+reachability, kernel variable drift, systemd unit references, package names
+against the real suite index, and build-driver self-consistency.
 
-Interactive check (desktop):
+Run `--self-test` before trusting it. It feeds the validator deliberately broken
+fixtures and asserts each is rejected. A gate never observed failing is the
+problem it was written to fix.
+
+## 6. Build host notes
+
+Things that will cost you time otherwise.
+
+**Do not build on `/mnt/c` (DrvFs).** `debootstrap` and `mksquashfs` need real
+symlinks, device nodes, and ownership. Copy the tree onto the native filesystem
+first:
 
 ```bash
-qemu-system-x86_64 -m 4096 -enable-kvm -cdrom output/obsidian-daily-trixie-amd64.iso
+tar -C /mnt/c/path/to/obsidian-os --exclude=.git --exclude=build/work -cf - . \
+  | tar -C /root/obsidian-os -xf -
+cd /root/obsidian-os && sudo ./build/build-iso.sh --flavor daily
 ```
 
-## 4. Building the obsidian-* metapackages
+**WSL2 vs WSL1.** WSL2 needs the *Virtual Machine Platform* Windows optional
+feature; without it `wsl --import --version 2` fails with
+`HCS_E_HYPERV_NOT_INSTALLED`. That is not a firmware problem — if VBS/HVCI is
+already running, VT-x works. Run `tools/enable-wsl2.ps1` as Administrator and
+reboot.
 
-The recipe installs `obsidian-core`, `obsidianwm`, `obsidian-panel`,
-`obsidian-apps`, … from a local Debian repo. Skeleton packages live in
-`debos/packages/*/debian/` — build them on any Debian host:
+WSL1 works for this build (`mount -t proc`, `mount --bind`, and `chroot` all
+function, which is all `debootstrap` needs), with two caveats:
 
-```bash
-# once: seed a local repo the CI uses
-for p in debos/packages/*/; do
-  (cd "$p" && dpkg-buildpackage -b -us -uc)
-done
-# then serve debos/packages/*.deb via an apt repo (apt-ftparchive) or put them
-# in the debos image list directly.
-```
+- It ships IPv6-only resolvers (`fec0:...`) that are unreachable. Write a real
+  `/etc/resolv.conf`, and set `Acquire::ForceIPv4 "true"` in
+  `/etc/apt/apt.conf.d/` or every fetch stalls on AAAA lookups.
+- Installing the `systemd` package makes `systemd-resolved` symlink
+  `/etc/resolv.conf` to `/run/systemd/resolve/stub-resolv.conf`. systemd does
+  not run under WSL1, so that target never exists and **all name resolution
+  fails with no obvious cause**. Replace the symlink with a real file and mask
+  `systemd-resolved.service`.
 
-CI does this automatically (`.github/workflows/build-iso.yml`, step `build-packages`).
+**QEMU acceleration.** On a host without VT-x exposed to the guest, use
+`-accel tcg`. The boot test already does.
 
-## 5. Custom hardened kernel
+## 7. Reproducibility
 
-The intent is `linux-hardened` features on Debian's `linux-image-amd64`. Two paths:
-
-- **Simplest (recommended, CI):** a patched source build job
-  (`obsidian-kernel` package) wired into the CI pipeline from an upstream
-  `linux` tree + the Arch `linux-hardened` config patches, cross-checked against
-  `docs/HARDENING.md` (lockdown, hardened allocator, INIT_ON_ALLOC/FREE, …).
-- **Fast prototype:** use the Arch flavor instead (`debos -t arch` → repo)
-  which ships `linux-hardened` ready-built; Debian ISO can pin
-  `linux-image-6.x-oby-hardened` once the job lands.
-
-## 6. Secure Boot keys + UKI (install-time)
-
-The ISO boots via systemd-boot + UKI. On first *guided install*:
-
-```bash
-# inside the installed system (post-install helper, outline)
-sbctl create-keys
-sbctl enroll-keys --microsoft
-sbctl sign /usr/lib/systemd/boot/efi/systemd-bootx64.efi
-sbctl sign /boot/EFI/Linux/obsidian.efi        # the UKI
-systemd-cryptenroll --tpm2-device=auto /dev/<root-luks>   # optional TPM2 unlock
-```
-
-Full recipe + measured-boot notes are tracked as Phase 1.5 tasks
-(`docs/ROADMAP.md` M2).
-
-## 7. Alternative build path: live-build
-
-If debos actions ever block on thin clients, the same overlays can be packed by
-`live-build`:
-
-```bash
-sudo apt install -y live-build debootstrap
-lb config --distribution trixie --binary-images iso-hybrid \
-          --bootappend-live "boot=live components quiet"
-# point debian/ and chroot hooks at debos/overlays-src/common etc.
-lb build
-```
+`SOURCE_DATE_EPOCH` defaults to a fixed value and the chroot's `/etc/machine-id`
+is emptied, so two builds of the same commit produce equivalent trees. This is
+*approximate* reproducibility: it does not pin the package versions pulled from
+the mirror. Exact pinning is a `snapshot.debian.org` change and is tracked in the
+roadmap.
 
 ## 8. Troubleshooting
 
-| Symptom | Fix |
-|---|---|
-| `debos: unknown action debian-live` | debos ≥ 1.1.14 (or build debos from source) |
-| `apt-get update` fails inside build | host DNS/network; retry with a Debian mirror override (`-t mirror:...`) |
-| QEMU boot hangs before marker | add `-t` QEMU accel arg in `tests/boottest.sh`; check CPU virtualization is available or use `-accel tcg` |
-| Overlay unpack fails | regenerate `debos/overlays/*.tar` with `scripts/make-overlays.sh` |
-| Sandbox/KVM errors in Penta profile | ensure KVM group on host (`sudo usermod -aG kvm $USER`) — cells need `/dev/kvm` |
-| ISO too small / packages missing | likely obsidian-* repo empty — build metapackages (§4) first |
-
-## 9. CI
-
-Push a `v*` tag (or run `workflow_dispatch`) and GitHub Actions builds the same
-flavors in containers and uploads the ISOs to the release:
-`.github/workflows/build-iso.yml`.
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Failed getting release file` | no suite keyring | install `debian-archive-keyring` |
+| `Temporary failure resolving` | WSL1 `resolv.conf` is a dangling symlink | §6 |
+| `unknown debos action` in a log | a stale recipe is still being invoked | recipes were removed; check you are running `build/build-iso.sh` |
+| ISO drops to GRUB rescue prompt | `grub.cfg` not at `boot/grub/grub.cfg` | `validate-build.py` check 7 catches this |
+| Boot test: no `OBSIDIAN-OS-MARKER` | kernel never reached multi-user | read the serial log with `--keep-log`; likely a missing `live-boot` |
+| `could not enable <unit>` | unit not in the image | `validate-build.py` check 5 catches this before the build |
+| Guest has no network | firewall `input` policy drop without a DHCP accept | see the ordering rules in `overlays/common/etc/nftables.conf` |

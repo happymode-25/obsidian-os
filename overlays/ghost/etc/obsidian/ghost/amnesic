@@ -1,0 +1,4 @@
+# Obsidian OS — Ghost: amnesic marker.
+# Presence of this file means the session must leave no persistent trace.
+# Read by: overlays/common/usr/local/sbin/obsidian-boot-report (attestation)
+#          /usr/lib/systemd/system-shutdown/obsidian-memwipe.sh

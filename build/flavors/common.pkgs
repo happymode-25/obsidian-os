@@ -1,0 +1,61 @@
+# Obsidian OS - package set common to every flavor (first-light baseline).
+#
+# This list is deliberately MINIMAL and REAL: every entry is a package that
+# exists in Debian trixie and that the system genuinely needs in order to boot
+# under QEMU with the hardening overlays actually applied.
+#
+# Rules for this file:
+#   - one package per line; `#` comments only; no version pins here.
+#     Version pinning is a snapshot.debian.org change, tracked in ROADMAP.
+#   - no entry may reference a package that does not exist in trixie.
+#     `python3 scripts/validate-build.py --online` resolves every entry against
+#     the real trixie Packages index, so a typo fails the gate in seconds
+#     rather than 20 minutes into a build.
+#   - offensive tooling never appears here, in any flavor. See docs/LEGAL.md and
+#     docs/ADR-0002; the Pentester flavor ships no attack tooling at all.
+#
+# --- init / kernel / boot chain -------------------------------------------
+systemd
+systemd-sysv
+linux-image-amd64
+initramfs-tools
+kmod
+procps
+udev
+
+# --- mandatory access control + firewall (the hardening story) ------------
+apparmor
+apparmor-utils
+apparmor-profiles
+nftables
+
+# --- core userspace the rest of the OS assumes exists ---------------------
+dbus
+sudo
+ca-certificates
+apt-utils
+iproute2
+iputils-ping
+less
+nano
+vim-tiny
+bash-completion
+zram-tools
+locales
+
+# --- live-session plumbing (we are a live ISO) ----------------------------
+live-boot
+squashfs-tools
+
+# --- base net stack: systemd-networkd + resolved -------------------------
+# NOTE: there is no separate `systemd-networkd` package in trixie. The daemon is
+# shipped by `systemd` itself and the `systemd-networkd.service` unit comes from
+# it. Listing it as its own dependency fails package resolution -- caught by
+# `validate-build.py --online`, which is precisely what that check is for.
+#
+# A headless serial console is what tests/boottest.sh reads. The kernel command
+# line is assembled by build/build-iso.sh (see CMDLINE_EXTRA there, and
+# overlays/<flavor>/etc/obsidian/<flavor>/cmdline.extra). It pins
+# console=ttyS0,115200n8 last, so /dev/console lands on the captured line.
+systemd-resolved
+systemd-timesyncd

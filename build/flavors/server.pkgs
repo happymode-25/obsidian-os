@@ -1,0 +1,10 @@
+# Obsidian OS — Server flavor additions.
+# NOTE: not yet built in CI (build time). Listed for completeness; the
+# services themselves are enabled as a role toggle, not baked in.
+openssh-server
+caddy
+nginx
+postgresql
+sqlite3
+samba
+nfs-kernel-server

@@ -34,3 +34,9 @@ JUST-ONCE keys/
 # Logs from local runs
 *.log
 journal/
+# Generated verification output (regenerate: python3 scripts/verify-manifest-urls.py)
+manifest-verify-failures.json
+
+# ISO build work tree and output
+build/work/
+build/out/

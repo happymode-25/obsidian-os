@@ -1,0 +1,13 @@
+# Obsidian OS — Ghost (Privacy-Max) flavor additions.
+#
+# Applied on top of common.pkgs. Ghost is the amnesic/anti-forensic profile:
+# volatile logs, Tor by default, MAC randomization, memory wipe on shutdown.
+#
+# NOTE: this list is trixie-main only. Tor pluggable transports that live
+# outside main (snowflake, meek) are staged at runtime by
+# scripts/obsidian-tor-runtime, not baked into the ISO.
+tor
+torsocks
+obfs4proxy
+macchanger
+gnupg

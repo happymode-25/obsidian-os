@@ -1,0 +1,14 @@
+# Obsidian OS — Developer flavor additions.
+# NOTE: not yet built in CI (build time).
+build-essential
+git
+curl
+wget
+jq
+python3-pip
+python3-venv
+tmux
+ripgrep
+fd-find
+bat
+git-lfs

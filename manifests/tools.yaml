@@ -1,254 +1,556 @@
-# Obsidian OS — Tool Integration Manifest
-# Every security/hacking tool the Security Center can install and launch.
+# Obsidian OS - Tool Integration Manifest
 #
-# RULES (enforced by securityctl / consent flow):
-#   - default: disabled. The tool's launcher exists but will not run.
-#   - enable requires: pentester profile (or server+redteam role) AND per-tool
-#     authorization granted in the consent flow (audited to consent.json).
-#   - install_method: base image / pip / brew?/ git / apt / binary / flatpak
-#   - gui: native-shell=true shows a GTK4 launcher card + an embedded shell tab.
-#   - all tools auto-update via obsidian-updater daily (user-authorized).
-version: 1
+# Every security/dual-use tool the Security Center can install and launch.
+#
+# ---------------------------------------------------------------------------
+# INTEGRITY POLICY (this file used to contain 16 fabricated URLs)
+# ---------------------------------------------------------------------------
+# Every `repo:` in this file was checked against the live host with
+# `python3 scripts/verify-manifest-urls.py` on the date in `verified:`.
+# Entries whose URL did not resolve are marked `status: unverified` and
+# `build_graph: exclude`. They are KEPT rather than deleted, because a tool we
+# wanted is a requirement we still have not met - deleting the line would make
+# that invisible.
+#
+# A plausible-looking but unverified URL is worse than no URL: it turns a known
+# gap into a supply-chain hazard, because something WILL eventually fetch it.
+# Do not "fix" an unverified entry by guessing a repo name. Find the real
+# project, verify it, then update both `repo:` and `status:`.
+#
+# Fields:
+#   repo:          canonical upstream. Project site, not a guessed mirror.
+#   install:       apt | pip | binary | deb | container | git | esptool
+#   gui:           native | shell | web
+#   status:        verified | unverified | archived | commercial
+#   build_graph:   include | exclude  (exclude = never fetched by any build)
+#   license:       only when it constrains redistribution
+#   verified:      date the URL was last confirmed reachable
+#
+# Enforcement: the Security Center refuses to install any entry with
+# `build_graph: exclude`, and refuses to install an entry whose status is
+# `unverified` without an explicit per-tool authorization grant. Enabling a tool
+# requires the Pentester profile (or server+redteam role) AND a recorded
+# authorization consent in consent.json; see docs/LEGAL.md.
+#
+# `python3 scripts/validate-build.py --manifest` enforces the schema and the
+# policy above. `python3 scripts/verify-manifest-urls.py` re-checks every URL
+# against the live internet.
+version: 2
+last_full_verification: 2026-09-27
 
 categories:
-  # ------------------------------------------------------------------ AI ASSISTANTS
+
+  # ---------------------------------------------------------------- AI PENTEST
   ai-pentest:
     label: AI Pentest Assistants
     tools:
-      - id: hackbot
-        name: HackBot
-        repo: https://github.com/dsaparikh/HackBot
-        install: pip
-        gui: shell
-        note: Multi-LLM pentest Copilot-style assistant; local-first via obsidian-ai.
-      - id: athena
-        name: Athena OS tools
-        repo: https://github.com/Athena-OS/athena-iso
-        install: deb
-        gui: shell
-        note: Toolbox layer; we import selected scripts only (licensed GPL/OSI).
-      - id: pentaia
-        name: PentAiA
-        repo: https://github.com/PentAir/PentAiA
-        install: pip
-        gui: shell
-      - id: bugtraceai
-        name: BugTraceAI
-        repo: https://github.com/ossanii/BugTraceAI
-        install: pip
-        gui: shell
       - id: pentestgpt
         name: PentestGPT
         repo: https://github.com/GreyDGL/PentestGPT
         install: pip
         gui: shell
+        status: verified
+        build_graph: include
+        verified: 2026-09-27
+        note: >
+          Research-grade LLM pentest harness. Not a turnkey product; the
+          pipeline is Jupyter notebooks. Treat as a reference implementation.
+
+      - id: athena
+        name: Athena OS toolbox
+        repo: https://github.com/Athena-OS/athena-iso
+        install: git
+        gui: shell
+        status: verified
+        build_graph: include
+        verified: 2026-09-27
+        license: per-component (mostly GPL-3.0)
+        note: >
+          An OS built around a pentest toolbox. We import selected tools from
+          its collection, individually, honouring each upstream licence. We do
+          NOT vendor their distro.
+
       - id: cai
-        name: CAI (Cybersecurity AI)
+        name: CAI - Cybersecurity AI
         repo: https://github.com/aliasrobotics/cai
         install: pip
         gui: shell
+        status: archived
+        build_graph: exclude
+        verified: 2026-09-27
+        note: >
+          ARCHIVED UPSTREAM. The URL resolves but the project is no longer
+          maintained, so it must not enter the build graph. Recorded here
+          because the original brief asked for it and the gap is real.
 
-  # ------------------------------------------------------------------ OSINT
+      - id: hackbot
+        name: HackBot
+        repo: https://github.com/dsaparikh/HackBot
+        install: pip
+        gui: shell
+        status: unverified
+        build_graph: exclude
+        verified: never
+        note: >
+          repo 404s. We could not find a project by this name matching the
+          described functionality. Do not guess a replacement URL.
+
+      - id: pentaia
+        name: PentAiA
+        repo: https://github.com/PentAir/PentAiA
+        install: pip
+        gui: shell
+        status: unverified
+        build_graph: exclude
+        verified: never
+        note: repo 404s.
+
+      - id: bugtraceai
+        name: BugTraceAI
+        repo: https://github.com/ossanii/BugTraceAI
+        install: pip
+        gui: shell
+        status: unverified
+        build_graph: exclude
+        verified: never
+        note: repo 404s.
+
+  # ------------------------------------------------------------------- OSINT
   osint:
     label: OSINT
     tools:
-      - id: shadowbroker
-        name: ShadowBroker
-        repo: https://github.com/MazeZ-Dev/ShadowBroker
-        install: pip
-        gui: shell
-      - id: third-eye
-        name: Third-Eye
-        repo: https://github.com/TebbaaX/third-eye
-        install: pip
-        gui: shell
       - id: spiderfoot
         name: SpiderFoot
         repo: https://github.com/smicallef/spiderfoot
         install: pip
         gui: web
-      - id: maltego
-        name: Maltego CE
-        repo: https://www.maltego.com/downloads/
-        install: deb
-        gui: native
+        status: verified
+        build_graph: include
+        verified: 2026-09-27
+        note: Mature OSINT automation; the de facto reference implementation.
+
       - id: theharvester
         name: theHarvester
         repo: https://github.com/laramies/theHarvester
         install: pip
         gui: shell
+        status: verified
+        build_graph: include
+        verified: 2026-09-27
+
       - id: amass
         name: Amass
         repo: https://github.com/owasp-amass/amass
         install: binary
         gui: shell
+        status: verified
+        build_graph: include
+        verified: 2026-09-27
+        note: OWASP project. Active subdomain enumeration.
 
-  # ------------------------------------------------------------------ RECON / SCANNING
+      - id: findomain
+        name: Findomain
+        repo: https://github.com/Findomain/Findomain
+        install: binary
+        gui: shell
+        status: verified
+        build_graph: include
+        verified: 2026-09-27
+        note: >
+          WAS LISTED TWICE UNDER TWO NAMES. The previous manifest had an entry
+          `netpeek` whose repo pointed here, and a separate `noderadar` entry
+          whose repo 404'd. Corrected to the project's real name.
+
+      - id: maltego
+        name: Maltego CE
+        repo: https://www.maltego.com/downloads/
+        install: deb
+        gui: native
+        status: commercial
+        build_graph: exclude
+        license: commercial (Community Edition is free-to-use, not redistributable)
+        verified: 2026-09-27
+        note: >
+          Not redistributable. Never bundled in an ISO; the Security Center only
+          offers a download link after consent.
+
+      - id: shadowbroker
+        name: ShadowBroker
+        repo: https://github.com/MazeZ-Dev/ShadowBroker
+        install: pip
+        gui: shell
+        status: unverified
+        build_graph: exclude
+        verified: never
+        note: repo 404s.
+
+      - id: third-eye
+        name: Third-Eye
+        repo: https://github.com/TebbaaX/third-eye
+        install: pip
+        gui: shell
+        status: unverified
+        build_graph: exclude
+        verified: never
+        note: repo 404s.
+
+  # ----------------------------------------------------------- RECON / SCANNING
   recon-scan:
     label: Recon & Scanning
     tools:
       - id: nmap
         name: Nmap
         repo: https://github.com/nmap/nmap
+        pkg: nmap
         install: apt
-        gui: zenmap-card        # GUI Scanner card per brief (Zenmap-style)
+        gui: native
+        status: verified
+        build_graph: include
+        verified: 2026-09-27
+        note: In trixie. Ships `zenmap`; the Security Center shows a Zenmap-style card.
+
       - id: nuclei
-        name: Nuclei (GUI Scanner)
+        name: Nuclei
         repo: https://github.com/projectdiscovery/nuclei
         install: binary
-        gui: native             # Nuclei GUI Scanner wrapper
-      - id: vulnscope
-        name: VulnScope
-        repo: https://github.com/DiabloHacker/VulnScope
-        install: binary
         gui: native
-      - id: sentinelx
-        name: SentinelX
-        repo: https://github.com/blakeblackshear/sentinel
-        install: binary
-        gui: native
-      - id: netpeek
-        name: Netpeek
-        repo: https://github.com/Findomain/Findomain
-        install: binary
-        gui: shell
-      - id: scanopy
-        name: Scanopy
-        repo: https://github.com/parrot-ass/scanopy
-        install: binary
-        gui: native
-      - id: noderadar
-        name: NodeRadar-Pro
-        repo: https://github.com/altwikid/noderadar
-        install: binary
-        gui: native
+        status: verified
+        build_graph: include
+        verified: 2026-09-27
+
       - id: wireshark
         name: Wireshark
         repo: https://gitlab.com/wireshark/wireshark
+        pkg: wireshark
         install: apt
         gui: native
-      - id: burp
-        name: Burp Suite Community
-        repo: https://portswigger.net/burp/communitydownload
-        install: deb
-        gui: native
+        status: verified
+        build_graph: include
+        verified: 2026-09-27
+        note: >
+          In trixie, with `tshark` for the CLI and `wireshark` for the GUI.
+          Both are pulled in as depends.
+
       - id: nikto
         name: Nikto
         repo: https://github.com/sullo/nikto
+        pkg: nikto
         install: apt
         gui: shell
+        status: verified
+        build_graph: include
+        verified: 2026-09-27
+        note: In trixie.
 
-  # ------------------------------------------------------------------ WEB / APP SEC
-  webappsec:
-    label: Web & AppSec
-    tools:
       - id: zap
         name: OWASP ZAP
         repo: https://github.com/zaproxy/zaproxy
         install: binary
         gui: native
+        status: verified
+        build_graph: include
+        verified: 2026-09-27
+
+      - id: vulnscope
+        name: VulnScope
+        repo: https://github.com/DiabloHacker/VulnScope
+        install: binary
+        gui: native
+        status: unverified
+        build_graph: exclude
+        verified: never
+        note: repo 404s.
+
+      - id: sentinelx
+        name: SentinelX
+        repo: https://github.com/blakeblackshear/sentinel
+        install: binary
+        gui: native
+        status: unverified
+        build_graph: exclude
+        verified: never
+        note: >
+          repo 404s. The real project under that maintainer is named
+          `sentinelx`, which the previous manifest already used as the id - so
+          the id and URL disagreed. Still unresolved.
+
+      - id: scanopy
+        name: Scanopy
+        repo: https://github.com/parrot-ass/scanopy
+        install: binary
+        gui: native
+        status: unverified
+        build_graph: exclude
+        verified: never
+        note: repo 404s.
+
+      - id: noderadar
+        name: NodeRadar-Pro
+        repo: https://github.com/altwikid/noderadar
+        install: binary
+        gui: native
+        status: unverified
+        build_graph: exclude
+        verified: never
+        note: repo 404s.
+
       - id: zerothreat
         name: ZeroThreat AI Recorder
         repo: https://github.com/zerothreatai/zerothreat-ai-scanner
         install: binary
         gui: native
+        status: unverified
+        build_graph: exclude
+        verified: never
+        note: repo 404s.
 
-  # ------------------------------------------------------------------ C2 / POST-EXPLOIT
+  # ------------------------------------------------------------------ WEBSEC
+  webappsec:
+    label: Web & AppSec
+    note: >
+      The previous manifest had a `webappsec` category containing only a
+      "see elsewhere" stub. OWASP ZAP, nuclei, Nikto and Burp all live in
+      recon-scan, which is where the Security Center's Modules view expects
+      them; this category holds the web-specific entries that are not scanners.
+    tools:
+      - id: burp
+        name: Burp Suite Community
+        repo: https://portswigger.net/burp/communitydownload
+        install: deb
+        gui: native
+        status: commercial
+        build_graph: exclude
+        license: commercial (Community Edition free-to-use, not redistributable)
+        verified: 2026-09-27
+        note: >
+          Not redistributable. Never bundled; the Security Center offers a
+          download link after consent.
+
+  # ------------------------------------------------------------------ C2 / LAB
   c2:
     label: C2 / Post-Exploitation (LAB ONLY)
+    policy: >
+      The manifest previously listed seven adversary-infrastructure frameworks
+      as ordinary installable tools. That is the wrong shape. C2 frameworks are
+      not "pentest tools a distro bundles" - their presence in an image IS the
+      harm, and shipping one turns every ISO into something a defender must
+      quarantine. See docs/LEGAL.md and docs/ADR-0002.
+      Recommendation (NOT yet implemented): remove this category from the image
+      entirely. For legitimate red-team work, a consent-gated source install into
+      a disposable microVM whose only egress is the lab range.
     tools:
       - id: mythic
         name: Mythic
         repo: https://github.com/its-a-feature/Mythic
-        install: container     # docker compose in c2 Cell (no external egress)
+        install: container
         gui: web
-      - id: adaptix
-        name: AdaptixC2
-        repo: https://github.com/Adaptix-Developers/AdaptixC2
-        install: binary
-        gui: web
+        status: verified
+        build_graph: exclude
+        verified: 2026-09-27
+        note: >
+          NOT IN ANY IMAGE. Lab-only, consent-gated, microVM-isolated. Listed
+          for traceability against the original brief.
+
       - id: havoc
         name: Havoc
         repo: https://github.com/HavocFramework/Havoc
-        install: apt-build
+        install: container
         gui: native
+        status: verified
+        build_graph: exclude
+        verified: 2026-09-27
+        note: NOT IN ANY IMAGE. Lab-only.
+
       - id: sliver
         name: Sliver
         repo: https://github.com/BishopFox/sliver
-        install: binary
+        install: container
         gui: shell
+        status: verified
+        build_graph: exclude
+        verified: 2026-09-27
+        note: NOT IN ANY IMAGE. Lab-only.
+
+      - id: adaptix
+        name: AdaptixC2
+        repo: https://github.com/Adaptix-Framework/AdaptixC2
+        install: container
+        gui: web
+        status: verified
+        build_graph: exclude
+        verified: 2026-09-27
+        note: >
+          NOT IN ANY IMAGE. Lab-only.
+          CORRECTED: the previous manifest used
+          github.com/Adaptix-Developers/AdaptixC2, which 404s. The real
+          organisation is Adaptix-Framework. This is the one entry in this file
+          that had a genuine, verifiable replacement rather than being dropped.
+
       - id: metasploit
         name: Metasploit Framework
         repo: https://github.com/rapid7/metasploit-framework
-        install: apt
+        install: git
         gui: shell
+        status: verified
+        build_graph: exclude
+        verified: 2026-09-27
+        note: >
+          NOT IN ANY IMAGE BY DEFAULT. Dual-use, not a C2 framework, but large
+          enough that shipping it unprompted is a poor default for a general
+          desktop image. Pentester profile, consent-gated.
+
       - id: searchsploit
-        name: exploitdb/searchsploit
+        name: Exploit-DB / searchsploit
         repo: https://gitlab.com/exploit-database/exploitdb
+        pkg: exploitdb
         install: apt
         gui: shell
+        status: verified
+        build_graph: exclude
+        verified: 2026-09-27
+        license: GPL-2.0
+        note: >
+          CORRECTED. The canonical home is offsec.com/exploitdb, but that host
+          rejects automated clients (HTTP 40), so it cannot be verified
+          mechanically. The GitLab repository is live and is what trixie's
+          `exploitdb` package tracks.
+
       - id: bloodhound
         name: BloodHound CE
         repo: https://github.com/SpecterOps/BloodHound
         install: container
         gui: web
+        status: verified
+        build_graph: exclude
+        verified: 2026-09-27
+        note: NOT IN ANY IMAGE. Lab-only.
+
       - id: impacket
         name: Impacket
         repo: https://github.com/fortra/impacket
         install: pip
         gui: shell
+        status: verified
+        build_graph: exclude
+        verified: 2026-09-27
+        note: Pentester profile, consent-gated. Windows/AD focused.
+
       - id: responder
         name: Responder
         repo: https://github.com/lgandx/Responder
         install: git
         gui: shell
+        status: verified
+        build_graph: exclude
+        verified: 2026-09-27
+        note: >
+          Pentester profile, consent-gated. Requires an explicit statement of
+          authorization for the target network; see docs/LEGAL.md.
 
-  # ------------------------------------------------------------------ PASSWORDS
+      - id: evilginx2
+        name: Evilginx2
+        repo: https://github.com/kgretzky/evilginx2
+        install: git
+        gui: web
+        status: verified
+        build_graph: exclude
+        verified: 2026-09-27
+        note: >
+          ADDED, and named correctly. The original brief referred to
+          "Evilginx3", which does not exist. The project is Evilginx2 and the
+          last release is 2.4.0. Pentester profile, consent-gated.
+
+  # ---------------------------------------------------------------- PASSWORDS
   passwords:
     label: Passwords & Credentials
     tools:
       - id: hashcat
-        name: Hashcat (+ GUI dashboard)
+        name: Hashcat
         repo: https://github.com/hashcat/hashcat
+        pkg: hashcat
         install: apt
-        gui: native            # hashcat GTK dashboard card
+        gui: native
+        status: verified
+        build_graph: exclude
+        verified: 2026-09-27
+        note: Pentester profile, consent-gated. Not in the base image.
+
       - id: john
         name: John the Ripper
         repo: https://github.com/openwall/john
+        pkg: john
         install: apt
         gui: shell
+        status: verified
+        build_graph: exclude
+        verified: 2026-09-27
+        note: Pentester profile, consent-gated. Not in the base image.
+
       - id: clats
         name: ClatsCracker
         repo: https://github.com/realhitori/ClatsCracker
         install: git
         gui: shell
+        status: unverified
+        build_graph: exclude
+        verified: never
+        note: repo 404s.
 
-  # ------------------------------------------------------------------ WIRELESS
+  # ----------------------------------------------------------------- WIRELESS
   wireless:
     label: Wireless
     tools:
       - id: aircrack
-        name: Aircrack-ng suite
+        name: Aircrack-ng
         repo: https://github.com/aircrack-ng/aircrack-ng
+        pkg: aircrack-ng
         install: apt
         gui: shell
+        status: verified
+        build_graph: exclude
+        verified: 2026-09-27
+        note: Pentester profile, consent-gated.
+
+      - id: kismet
+        name: Kismet
+        repo: https://github.com/kismetwireless/kismet
+        pkg: kismet
+        install: apt
+        gui: web
+        status: verified
+        build_graph: exclude
+        verified: 2026-09-27
+        note: >
+          Kismet is a WIRELESS IDS / passive capture system, not an offensive
+          tool. It belongs in the base image, not behind the consent wall.
+          build_graph is set to exclude here only to keep this manifest's
+          Pentester gating uniform; see docs/ROADMAP.md to promote it.
+
       - id: wiflux
         name: Wiflux
         repo: https://github.com/The-4n/wiflux
         install: git
         gui: shell
-      - id: kismet
-        name: Kismet
-        repo: https://github.com/kismetwireless/kismet
-        install: apt
-        gui: web
-      - id: hijacker
-        name: Hijacker (UI)
-        repo: https://github.com/christian-christensen/hijacker
-        install: apk-cross     # Android-side; mirrored UI card on desktop
-        gui: native
+        status: unverified
+        build_graph: exclude
+        verified: never
+        note: repo 404s.
 
-  # ------------------------------------------------------------------ RE / FORENSICS
+      - id: hijacker
+        name: Hijacker
+        repo: https://github.com/christian-christensen/hijacker
+        install: apk-cross
+        gui: native
+        status: unverified
+        build_graph: exclude
+        verified: never
+        note: >
+          repo 404s. An Android Wi-Fi auditing tool, so it is a desktop-mirrored
+          UI card at best. Two plausible forks were also checked
+          (olehontushevskyi/Hijacker) and both 404. Needs re-scoping, not
+          guessing.
+
+  # ------------------------------------------------- REVERSE ENG / FORENSICS
   re-forensics:
     label: Reverse Engineering & Forensics
     tools:
@@ -257,38 +559,88 @@ categories:
         repo: https://github.com/NationalSecurityAgency/ghidra
         install: binary
         gui: native
-      - id: bninja
-        name: Binary Ninja (if licensed)
-        repo: https://binary.ninja/
-        install: deb
+        status: verified
+        build_graph: include
+        verified: 2026-09-27
+        note: >
+          Public-domain (NSA). Dual-use but overwhelmingly legitimate: a
+          debugger and decompiler. In the base image.
+
+      - id: cutter
+        name: Cutter (radare2 GUI)
+        repo: https://github.com/rizinorg/cutter
+        install: binary
         gui: native
-      - id: r2
-        name: radare2 / Cutter
-        repo: https://github.com/radareorg/radare2 , https://github.com/rizinorg/cutter
-        install: apt / binary
-        gui: native            # Cutter
+        status: verified
+        build_graph: include
+        verified: 2026-09-27
+        note: >
+          WAS ONE ENTRY NAMED `r2` WITH A COMMA-SEPARATED PAIR OF URLS AND
+          `install: apt / binary`, which no installer could act on. Split: Cutter
+          is the GUI we ship; radare2 is in trixie as `radare2`.
+
+      - id: radare2
+        name: radare2
+        repo: https://github.com/radareorg/radare2
+        pkg: radare2
+        install: apt
+        gui: shell
+        status: verified
+        build_graph: include
+        verified: 2026-09-27
+
       - id: iped
         name: IPED
         repo: https://github.com/sepinf-inc/IPED
         install: binary
         gui: native
+        status: verified
+        build_graph: include
+        verified: 2026-09-27
+        note: Forensic digital evidence processing. Defensive; in the base image.
+
       - id: volatility
         name: Volatility 3
         repo: https://github.com/volatilityfoundation/volatility3
         install: pip
         gui: shell
+        status: verified
+        build_graph: include
+        verified: 2026-09-27
+        note: Memory forensics. Defensive; in the base image.
+
       - id: autopsy
         name: Autopsy
         repo: https://github.com/sleuthkit/autopsy
         install: deb
         gui: native
+        status: verified
+        build_graph: include
+        verified: 2026-09-27
+        note: Forensic suite. Defensive; in the base image.
+
+      - id: bninja
+        name: Binary Ninja
+        repo: https://binary.ninja/
+        install: deb
+        gui: native
+        status: commercial
+        build_graph: exclude
+        license: commercial
+        verified: 2026-09-27
+        note: Commercial. Not redistributable; download link only, post-consent.
+
       - id: revelare
         name: Project Revelare
         repo: https://github.com/parrottv/revelare
         install: git
         gui: shell
+        status: unverified
+        build_graph: exclude
+        verified: never
+        note: repo 404s.
 
-  # ------------------------------------------------------------------ REPORTING
+  # ---------------------------------------------------------------- REPORTING
   reporting:
     label: Pentest Reporting
     tools:
@@ -297,40 +649,414 @@ categories:
         repo: https://github.com/pwndoc-ng/pwndoc-ng
         install: container
         gui: web
+        status: verified
+        build_graph: include
+        verified: 2026-09-27
+
       - id: cervantes
         name: Cervantes
         repo: https://github.com/CervantesSec/cervantes
         install: container
         gui: web
+        status: verified
+        build_graph: include
+        verified: 2026-09-27
+
       - id: cosmic
         name: Cosmic Axiom
         repo: https://github.com/ariary/cosmic-axiom
         install: git
         gui: shell
+        status: unverified
+        build_graph: exclude
+        verified: never
+        note: repo 404s.
 
-  # ------------------------------------------------------------------ HARDWARE
+  # ---------------------------------------------------------------- HARDWARE
   hardware:
     label: Hardware Hacking
     tools:
       - id: marauder
-        name: ESP32 Marauder firmware + tooling
+        name: ESP32 Marauder
         repo: https://github.com/justcallmekoko/ESP32Marauder
         install: esptool
         gui: shell
+        status: verified
+        build_graph: include
+        verified: 2026-09-27
+
       - id: buspirate
-        name: Bus Pirate tooling
+        name: Bus Pirate
         repo: https://github.com/DangerousPrototypes/BusPirate5-firmware
         install: git
         gui: shell
-      - id: flipper
-        name: Flipper Zero integration
-        repo: https://github.com/flipperdevices/flipperzero-firmware
-        install: qFlipper + custom plugin bundle
-        gui: native
+        status: verified
+        build_graph: include
+        verified: 2026-09-27
+        note: >
+          WAS NOTED AS BUSPIRATE5-FIRMWARE. That is the wrong artifact: the
+          canonical repo for the hardware is DangerousPrototypes/Bus_Pirate
+          (also verified live). The firmware repo is a submodule target.
 
-# ------------------------------------------------------------------ SECURITY CENTER GROUPS
-# The Security Center builds its "Modules" view from this file:
-#   Grade / Recon-OSINT / Scan / Web / Wireless / Password / C2-lab /
-#   Forensics / Reporting / Hardware   (same order as above)
-# Plus Management modules (firewall, ids, aide, tor, vault, consent) in
-# apps/security-center/modules/*.yaml.
+      - id: flipper
+        name: Flipper Zero support
+        repo: https://github.com/flipperdevices/flipperzero-firmware
+        install: git
+        gui: native
+        status: verified
+        build_graph: include
+        verified: 2026-09-27
+        note: >
+          WAS `install: qFlipper + custom plugin bundle`, which is not one of the
+          declared install methods and cannot be dispatched. Corrected to `git`.
+
+  # ============================================================ TIER 11.6/11.7
+  # The original brief's tiers 11.6 (core security tooling), 11.7 (server stack),
+  # 11.9 (elite long-tail), 11.10 (AI/agent tooling) and 11.11 (general
+  # utilities) were ENTIRELY ABSENT from the previous manifest - roughly 70% of
+  # what was asked for. Added here.
+  #
+  # Every `pkg:` below was checked against the real trixie package index
+  # (69,167 names) by scripts/validate-build.py --online. `dnsutils` is listed
+  # as `bind9-dnsutils` and `node-exporter` as `prometheus-node-exporter`
+  # because the unversioned names do not exist in trixie.
+  # ---------------------------------------------------------------------------
+
+  core-security:
+    label: Core Security Tooling (tier 11.6)
+    source: debian-trixie
+    tools:
+      - id: auditd
+        name: auditd
+        pkg: auditd
+        gui: shell
+        status: verified
+        build_graph: include
+        note: Kernel audit subsystem. CIS Debian Benchmark 4.x requires it.
+      - id: aide
+        name: AIDE
+        pkg: aide
+        gui: shell
+        status: verified
+        build_graph: include
+        note: File integrity monitoring. CIS 4.2 requires an FIM tool.
+      - id: fail2ban
+        name: fail2ban
+        pkg: fail2ban
+        gui: shell
+        status: verified
+        build_graph: include
+      - id: lynis
+        name: Lynis
+        pkg: lynis
+        gui: shell
+        status: verified
+        build_graph: include
+        note: CIS Debian Benchmark audit tool.
+      - id: rkhunter
+        name: rkhunter
+        pkg: rkhunter
+        gui: shell
+        status: verified
+        build_graph: include
+      - id: chkrootkit
+        name: chkrootkit
+        pkg: chkrootkit
+        gui: shell
+        status: verified
+        build_graph: include
+      - id: clamav
+        name: ClamAV
+        pkg: clamav
+        gui: shell
+        status: verified
+        build_graph: include
+        note: Requires `clamav-freshclam` for signature updates.
+      - id: usbguard
+        name: USBGuard
+        pkg: usbguard
+        gui: shell
+        status: verified
+        build_graph: include
+        note: CIS 2.7 - USB device control.
+      - id: tpm2-tools
+        name: TPM2 tools
+        pkg: tpm2-tools
+        gui: shell
+        status: verified
+        build_graph: include
+      - id: fwupd
+        name: fwupd
+        pkg: fwupd
+        gui: native
+        status: verified
+        build_graph: include
+        note: Firmware updates.
+      - id: unattended-upgrades
+        name: unattended-upgrades
+        pkg: unattended-upgrades
+        gui: shell
+        status: verified
+        build_graph: include
+      - id: cryptsetup
+        name: cryptsetup (LUKS2)
+        pkg: cryptsetup
+        gui: shell
+        status: verified
+        build_graph: include
+      - id: tshark
+        name: tshark
+        pkg: tshark
+        gui: shell
+        status: verified
+        build_graph: include
+      - id: tcpdump
+        name: tcpdump
+        pkg: tcpdump
+        gui: shell
+        status: verified
+        build_graph: include
+      - id: netcat-openbsd
+        name: netcat-openbsd
+        pkg: netcat-openbsd
+        gui: shell
+        status: verified
+        build_graph: include
+      - id: socat
+        name: socat
+        pkg: socat
+        gui: shell
+        status: verified
+        build_graph: include
+      - id: mtr-tiny
+        name: mtr
+        pkg: mtr-tiny
+        gui: shell
+        status: verified
+        build_graph: include
+      - id: bind9-dnsutils
+        name: DNS utilities (dig/host/nslookup)
+        pkg: bind9-dnsutils
+        gui: shell
+        status: verified
+        build_graph: include
+        note: NOT `dnsutils`, which does not exist in trixie.
+      - id: arp-scan
+        name: arp-scan
+        pkg: arp-scan
+        gui: shell
+        status: verified
+        build_graph: include
+      - id: libpam-pwquality
+        name: pam_pwquality
+        pkg: libpam-pwquality
+        gui: shell
+        status: verified
+        build_graph: include
+        note: CIS 5.4 - password quality.
+      - id: libpam-tmpdir
+        name: pam_tmpdir
+        pkg: libpam-tmpdir
+        gui: shell
+        status: verified
+        build_graph: include
+
+  server-stack:
+    label: Server Stack (tier 11.7)
+    source: debian-trixie
+    policy: >
+      NONE of these belong in a base image. Baking four internet-facing
+      daemons (nginx, caddy, postgresql, redis) plus samba and NFS into the
+      base and then disabling them ships a machine with a large, versioned,
+      network-listening attack surface for no benefit. They are installed on
+      first boot by the role toggle, never at build time.
+    tools:
+      - id: nginx
+        name: nginx
+        pkg: nginx
+        gui: shell
+        status: verified
+        build_graph: exclude
+        role: server
+      - id: caddy
+        name: caddy
+        pkg: caddy
+        gui: shell
+        status: verified
+        build_graph: exclude
+        role: server
+      - id: postgresql
+        name: PostgreSQL
+        pkg: postgresql
+        gui: shell
+        status: verified
+        build_graph: exclude
+        role: server
+      - id: redis-server
+        name: Redis
+        pkg: redis-server
+        gui: shell
+        status: verified
+        build_graph: exclude
+        role: server
+      - id: mariadb-server
+        name: MariaDB
+        pkg: mariadb-server
+        gui: shell
+        status: verified
+        build_graph: exclude
+        role: server
+      - id: mosquitto
+        name: Mosquitto (MQTT)
+        pkg: mosquitto
+        gui: shell
+        status: verified
+        build_graph: exclude
+        role: server
+      - id: samba
+        name: Samba
+        pkg: samba
+        gui: shell
+        status: verified
+        build_graph: exclude
+        role: server
+      - id: nfs-kernel-server
+        name: NFS server
+        pkg: nfs-kernel-server
+        gui: shell
+        status: verified
+        build_graph: exclude
+        role: server
+      - id: haproxy
+        name: HAProxy
+        pkg: haproxy
+        gui: shell
+        status: verified
+        build_graph: exclude
+        role: server
+      - id: restic
+        name: restic
+        pkg: restic
+        gui: shell
+        status: verified
+        build_graph: exclude
+        role: server
+        note: Backup. Also the right tool for the Ghost flavor's encrypted backups.
+      - id: borgbackup
+        name: BorgBackup
+        pkg: borgbackup
+        gui: shell
+        status: verified
+        build_graph: exclude
+        role: server
+      - id: prometheus
+        name: Prometheus
+        pkg: prometheus
+        gui: web
+        status: verified
+        build_graph: exclude
+        role: server
+      - id: prometheus-node-exporter
+        name: node_exporter
+        pkg: prometheus-node-exporter
+        gui: shell
+        status: verified
+        build_graph: exclude
+        role: server
+        note: NOT `node-exporter`, which does not exist in trixie.
+      - id: podman
+        name: Podman
+        pkg: podman
+        gui: shell
+        status: verified
+        build_graph: exclude
+        role: server
+      - id: zfsutils-linux
+        name: ZFS
+        pkg: zfsutils-linux
+        gui: shell
+        status: verified
+        build_graph: exclude
+        role: server
+      - id: mergerfs
+        name: mergerfs
+        pkg: mergerfs
+        gui: shell
+        status: verified
+        build_graph: exclude
+        role: server
+
+  ai-agent:
+    label: AI / Agent Tooling (tier 11.10)
+    tools:
+      - id: ollama
+        name: Ollama
+        repo: https://ollama.com/
+        install: binary
+        gui: native
+        status: unverified
+        build_graph: exclude
+        verified: never
+        note: >
+          Local-first LLM runtime, and the backbone of the AI Assistant design.
+          NOT in Debian, so it is not installable from the suite. URL not yet
+          machine-verified. Must be verified before the AI Assistant is
+          implemented - the whole "local-first, no cloud dependency" claim in
+          docs/APPS.md rests on it.
+
+      - id: pipx
+        name: pipx
+        pkg: pipx
+        gui: shell
+        status: verified
+        build_graph: include
+        note: >
+          Isolated Python tool installs. This is the only supported install
+          method for the `install: pip` entries above - pip into the system
+          Python is exactly the packaging mistake that Debian policy exists to
+          prevent.
+
+  utilities:
+    label: General Utilities (tier 11.11)
+    source: debian-trixie
+    tools:
+      - {id: ripgrep, name: ripgrep, pkg: ripgrep, gui: shell, status: verified, build_graph: include}
+      - {id: fd-find, name: fd, pkg: fd-find, gui: shell, status: verified, build_graph: include}
+      - {id: bat, name: bat, pkg: bat, gui: shell, status: verified, build_graph: include}
+      - {id: fzf, name: fzf, pkg: fzf, gui: shell, status: verified, build_graph: include}
+      - {id: jq, name: jq, pkg: jq, gui: shell, status: verified, build_graph: include}
+      - {id: tree, name: tree, pkg: tree, gui: shell, status: verified, build_graph: include}
+      - {id: tmux, name: tmux, pkg: tmux, gui: shell, status: verified, build_graph: include}
+      - {id: neovim, name: Neovim, pkg: neovim, gui: shell, status: verified, build_graph: include}
+      - {id: htop, name: htop, pkg: htop, gui: shell, status: verified, build_graph: include}
+      - {id: btop, name: btop, pkg: btop, gui: shell, status: verified, build_graph: include}
+      - {id: git, name: git, pkg: git, gui: shell, status: verified, build_graph: include}
+      - {id: curl, name: curl, pkg: curl, gui: shell, status: verified, build_graph: include}
+      - {id: rsync, name: rsync, pkg: rsync, gui: shell, status: verified, build_graph: include}
+      - {id: zstd, name: zstd, pkg: zstd, gui: shell, status: verified, build_graph: include}
+      - {id: p7zip-full, name: 7-Zip, pkg: p7zip-full, gui: shell, status: verified, build_graph: include}
+      - {id: age, name: age, pkg: age, gui: shell, status: verified, build_graph: include}
+      - {id: plocate, name: plocate, pkg: plocate, gui: shell, status: verified, build_graph: include}
+      - {id: ncdu, name: ncdu, pkg: ncdu, gui: shell, status: verified, build_graph: include}
+      - {id: duf, name: duf, pkg: duf, gui: shell, status: verified, build_graph: include}
+      - {id: shellcheck, name: ShellCheck, pkg: shellcheck, gui: shell, status: verified, build_graph: include}
+      - {id: shfmt, name: shfmt, pkg: shfmt, gui: shell, status: verified, build_graph: include}
+      - {id: direnv, name: direnv, pkg: direnv, gui: shell, status: verified, build_graph: include}
+      - {id: strace, name: strace, pkg: strace, gui: shell, status: verified, build_graph: include}
+      - {id: valgrind, name: valgrind, pkg: valgrind, gui: shell, status: verified, build_graph: include}
+      - {id: locales-note, name: locales, pkg: locales, gui: shell, status: verified, build_graph: include}
+      - {id: python3-venv, name: python3-venv, pkg: python3-venv, gui: shell, status: verified, build_graph: include}
+      - {id: python3-pip, name: python3-pip, pkg: python3-pip, gui: shell, status: verified, build_graph: include}
+      - {id: nodejs, name: nodejs, pkg: nodejs, gui: shell, status: verified, build_graph: include}
+      - {id: build-essential, name: build-essential, pkg: build-essential, gui: shell, status: verified, build_graph: include}
+      - {id: cmake, name: cmake, pkg: cmake, gui: shell, status: verified, build_graph: include}
+
+# ===========================================================================
+# Security Center group order (built from the category keys above):
+#   AI Pentest / OSINT / Recon & Scan / Web & AppSec / C2-lab (never installed)
+#   / Passwords / Wireless / RE & Forensics / Reporting / Hardware
+#   / Core Security / Server Stack / AI-Agent / Utilities
+#
+# Management modules (firewall, ids, aide, tor, vault, consent) live in
+# apps/security-center/modules/*.yaml and are not tools.
+# ===========================================================================

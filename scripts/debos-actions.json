@@ -1,0 +1,37 @@
+{
+  "_comment": "Snapshot of the action types debos actually implements, taken from the upstream source tree. Used by validate-build.py when it is offline. Refresh with: python3 scripts/validate-build.py --refresh-debos. The bug this exists to catch: the repo's recipe used a `debian-live` action that had been REMOVED from debos, and because the validator only checked that the YAML parsed, `GATE: PASS` was printed for a recipe that could never build.",
+  "source": "https://api.github.com/repos/go-debos/debos/contents/actions",
+  "retrieved": "2026-09-27",
+  "action_files": [
+    "apt_action.go",
+    "archive_action.go",
+    "copy_action.go",
+    "customize_action.go",
+    "debootstrap_action.go",
+    "dpkg_action.go",
+    "dump_action.go",
+    "exec_action.go",
+    "grub_action.go",
+    "luks_action.go",
+    "lvm_action.go",
+    "mmdebstrap_action.go",
+    "overlay_action.go",
+    "pack_action.go",
+    "partman_action.go",
+    "reboot_action.go",
+    "repurpose_action.go",
+    "run_action.go",
+    "syslinux_action.go",
+    "unpack_action.go",
+    "unzstd_action.go",
+    "wget_action.go",
+    "zstd_action.go"
+  ],
+  "removed_actions": [
+    {
+      "name": "debian-live",
+      "file": "debian_live_action.go",
+      "reason": "removed upstream; it produced a vanilla Debian live ISO, ignoring the built rootfs. This is the exact mechanism that let a build 'succeed' while shipping stock Debian."
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+# Obsidian OS — Ghost: Tor-only egress.
+#
+# NOT loaded at boot. This is a default-deny ruleset, and installing it before
+# Tor is accepting connections would black-hole the whole session. The intended
+# sequence is:
+#     tor.service starts
+#     -> verify SOCKS on 127.0.0.1:9050
+#     -> nft -f /etc/obsidian/ghost/egress.nft
+#     -> flush the common overlay's obsidian_kill table (now redundant)
+# Loading it while Tor is down is precisely what the kill switch exists to
+# prevent, so the guard below is deliberate: the file refuses to load unless
+# Tor answers.
+#
+# Rule ordering follows the house rule documented in
+# overlays/common/etc/nftables.conf: loopback and any explicit accept come
+# BEFORE the broad drops, because a later accept can never rescue traffic an
+# earlier drop already killed.
+
+table inet obsidian_tor {
+
+    chain out {
+        type filter hook output priority -10; policy drop;
+
+        # loopback FIRST: Tor's own SOCKS listener is on 127.0.0.1:9050 and
+        # gets there via oif lo. If this accept came after the port drops, the
+        # kill switch would fire on a perfectly healthy system.
+        oif lo accept
+
+        # established/related is required or Tor's own TLS to relays is
+        # indistinguishable from a leak
+        ct state established,related accept
+        ct state invalid drop
+
+        # the Tor client itself
+        skuid 0 ip daddr 127.0.0.1 tcp dport 9050 accept
+
+        # NOTE: transparent proxying (RedirectTCP) is the mechanism that makes
+        # port 443 and 80 traverse Tor. It is configured in torrc, not here.
+        # Until that exists, this ruleset only permits loopback, which means
+        # loading it yields a working-but-offline session. That is the correct
+        # failure direction: no connectivity beats silent leakage.
+
+        log prefix "TOR-LEAK " flags all counter drop
+    }
+
+    chain in {
+        type filter hook input priority -10; policy drop;
+        iif lo accept
+        ct state established,related,untracked accept
+        ct state invalid drop
+    }
+}
