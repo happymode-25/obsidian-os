@@ -71,6 +71,22 @@ hybrid, built with `grub-mkrescue`.
 
 Roughly 10–20 minutes and ~4 GB of disk per flavor.
 
+**The "stalled" phase is a kernel download, not a hang.** After the base packages
+are configured, apt downloads `linux-image-*` (tens of MB) before installing the
+remaining packages. `dpkg.log` goes quiet for many minutes during this, and on a
+slow line the file visibly crawls — on the reference host it transferred at
+~200 KB/s and looked dead for over six minutes. Before killing the build, check
+that the transfer is actually progressing rather than that nothing has been
+written:
+
+```sh
+ls -l build/work/chroot/var/cache/apt/archives/partial/
+# watch the .deb grow; if it is growing, it is downloading
+```
+
+Host load (not busy) + no `dpkg`/`apt` child + one socket held by the `https`
+method is the fingerprint of this phase, not of a deadlock.
+
 ## 3. How a flavor is defined
 
 A flavor is two files, and nothing else:
