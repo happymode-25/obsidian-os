@@ -1,7 +1,47 @@
+# —— Obsidian OS .gitignore -------------------------------------------------
+
+# Build artifacts. Never commit a build product: it hides whether the build
+# actually ran, and an ISO in git history cannot be removed without rewriting it.
+/output/
+*.iso
+*.img
+*.tar.xz
+*.tar.gz
+debos/overlays/*.tar
+debos/overlays-src/common/obsrepo/
+debos/packages/*.deb
+archiso/work/
+kernel-out/
+build/work/
+build/out/
+
+# Python / tooling caches
 __pycache__/
 *.pyc
 *.pyo
+.venv/
+node_modules/
 .pytest_cache/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local secrets / keys (never commit)
+*.pem
+*.key
+secrets/
+keys/
+JUST-ONCE keys/
+.env
+
+# Logs from local runs (build logs belong in an issue, not in a commit)
+*.log
+journal/
+manifest-verify-failures.json
 
 # Personal seal ledger and rendered reports.
 .tally/

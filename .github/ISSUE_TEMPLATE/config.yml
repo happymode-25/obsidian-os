@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Read the gap report first
+    url: https://github.com/happymode-25/obsidian-os/blob/master/docs/GAP-REPORT.md
+    about: Status claims in this project have been wrong before. This explains what was broken and how it was verified.
+  - name: Task 1.7 handoff (hardened kernel)
+    url: https://github.com/happymode-25/obsidian-os/blob/master/docs/TASK-1.7-HANDOFF.md
+    about: Exact state of the kernel packaging blocker, what is proven, and what is not.

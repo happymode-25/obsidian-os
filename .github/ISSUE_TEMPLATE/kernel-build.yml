@@ -1,0 +1,53 @@
+---
+name: Kernel build report (Task 1.7)
+about: You ran scripts/build-kernel.sh. Success or failure, this is the evidence we need.
+title: 'kernel build: '
+labels: ['help wanted']
+---
+
+<!--
+Both outcomes are useful. A failure log is a contribution; a success unblocks
+the release. Keep logs trimmed to the failing section, not the whole build.
+-->
+
+## Outcome
+
+- [ ] `.deb` produced in `build/kernel-out/`
+- [ ] Build failed before packaging
+- [ ] Build failed during `bindeb-pkg` / `debian/rules`
+
+## Environment
+
+| | |
+|---|---|
+| Host (bare metal / VM / WSL1 / WSL2 / container) | |
+| Distro + version | |
+| CPU cores | |
+| RAM (GB) | |
+| Free disk on the build filesystem (GB) | |
+| `KBUILD_JOBS` | |
+| `KERNEL_BUILD` set? | |
+
+## Command
+
+```
+# exact command you ran
+```
+
+## Result
+
+```
+# last ~40 lines of the failing step, or:
+# ls -lh build/kernel-out/  + dpkg-deb -I <deb>
+```
+
+## Kernel identity (success only)
+
+```
+# inside the built image or from the deb:
+uname -r
+```
+
+## Anything already ruled out
+
+<!-- e.g. debhelper installed, single build running, output captured to a log -->

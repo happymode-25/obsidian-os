@@ -71,6 +71,31 @@ trusting any status claim in this repository, including the ones here.
 
 ---
 
+## Help wanted: one blocker left in Phase 1
+
+The hardened kernel compiles but was never packaged into a `.deb`, so no image
+has shipped it. That is the whole of Task 1.7, and it does not need deep
+knowledge of this codebase — it needs a machine with headroom, or a GitHub
+Actions run.
+
+- **[`docs/TASK-1.7-HANDOFF.md`](docs/TASK-1.7-HANDOFF.md)** — exact state, the
+  failing log, what is proven and what is not.
+- **[`CONTRIBUTING.md`](CONTRIBUTING.md)** — how to run the build, what evidence a
+  PR must contain, and why the boot gate must never be weakened to go green.
+- **[Issues](https://github.com/happymode-25/obsidian-os/issues)** — `help wanted`
+  and `good first issue` labels.
+
+The shortest path is CI:
+
+```bash
+gh workflow run build-iso.yml -f flavor=daily
+```
+
+`build-kernel` has never run there. If it works, it hands you the `.deb` and a
+booted image. If it fails, the log is the contribution.
+
+---
+
 ## Build it yourself
 
 ```bash
