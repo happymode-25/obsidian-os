@@ -216,6 +216,38 @@ reached the wrong verdict — that is the thing to look at, not the package.
 diagnosis, including the two wrong turns on the way (suspecting `flock`, and
 reading an `objdump` that turned out not to be installed).
 
+### 6.2 `Cannot allocate memory` mid-bootstrap is the host, not the image
+
+This one is worth writing down because the message points at the wrong thing:
+
+```
+Creating user 'systemd-network' (systemd Network Management) with UID 998 and GID 998.
+Failed to backup /etc/group: Cannot allocate memory
+dpkg: error processing package systemd (--configure)
+```
+
+`useradd` cannot allocate memory while backing up a file the size of
+`/etc/group`. That is not a `useradd` bug and not a broken image — the process
+simply had nothing left to be given. It shows up during the busiest part of the
+build, when ~155 MB has just been downloaded and 128 packages are being
+configured, so it reads like a build fault.
+
+**Check `free -m` before believing it.** On the reference host the failing run
+showed 15,940 MB of 16,259 MB used and **318 MB available**, with 44 GB of swap
+untouched — WSL1 reports the host's memory, so the whole ceiling is the host's.
+
+Two things worth knowing:
+
+- The available figure is **volatile**. The same host measured 0.07 GB free and
+  5.6 GB free minutes apart. Before concluding the build is broken, re-measure.
+- `vmmemWSL` will show a very large *private commit* (measured ~4.9 GB) with a
+  small *working set*. That is WSL1's own reservation for the page cache and
+  the build tree, not the build's live footprint. Reading it as live usage is
+  what makes it look unrecoverable.
+
+If it still fails with several GB free, the next thing to check is whether the
+build is being run on `/mnt/c` — see the note above.
+
 **QEMU acceleration.** On a host without VT-x exposed to the guest, use
 `-accel tcg`. The boot test already does.
 
