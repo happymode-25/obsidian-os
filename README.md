@@ -149,6 +149,14 @@ it deliberately broken fixtures.
 
 ---
 
+## Contributors
+
+The git history uses one canonical committer identity, so attribution lives in
+[`CONTRIBUTORS.md`](CONTRIBUTORS.md); add changes through a PR (rules in
+[`CONTRIBUTING.md`](CONTRIBUTING.md)).
+
+---
+
 > **Legal.** This project ships offensive/dual-use tooling *disabled* and gated by
 > an authorization-consent flow. Read `docs/LEGAL.md` before enabling the Pentester
 > profile. Use only against systems you own or are authorized to test.
