@@ -77,7 +77,7 @@ Goal: a bootable ISO that passes a strict boot test, regardless of desktop polis
 | 1.1 | Build driver + CI | `build/build-iso.sh`, `.github/workflows/build-iso.yml` | `build-iso` job green |
 | 1.2 | Metapackages | `debos/packages/*/debian/` | ⚠️ hollow — real content is Phase 2 |
 | 1.3 | First bootable ISO (daily) | `build/out/obsidian-daily-*.iso` | ✅ **done (2026-09-29)** — strict gate **PASS** under WHPX QEMU: all 5 required markers, both stock-Debian fingerprints absent, `flavor=daily` (commit `bdd660a`) |
-| 1.4 | Ghost flavor boots | `obsidian-ghost-*.iso` | 🟡 **in flight** — ghost build + strict boot gate running (2026-09-29); must pass the same gate that daily now passes |
+| 1.4 | Ghost flavor boots | `obsidian-ghost-trixie-amd64.iso` | ✅ **done (2026-09-29)** — strict gate **PASS** under WHPX QEMU: `OBSIDIAN-OS-READY flavor=ghost` in 7.8 s, all 5 required markers, `ghost-amnesic: set`, `kernel-lockdown: 1` attested; sha256 `baf82be9…` |
 | 1.5 | Encrypted install path | `debos/installer/` (calamares-flavored config) | ⬜ not started |
 | 1.6 | Secure Boot + UKI + TPM2 | `scripts/boot-keys.sh` exists; **not wired into the image** | ⬜ not started |
 | 1.7 | Hardened kernel in the image | `scripts/build-kernel.sh` exists; **orphaned** | ⬜ not started — image boots stock Debian kernel |
@@ -184,13 +184,16 @@ Assistant documents it; an OSINT agent run completes with a report artifact.
 
 - Phase 0 deliverables 0.1–0.17 all exist; static gates green
   (`python3 scripts/validate-phase0.py`).
-- **Phase 1 (daily) is effectively DONE and boot-proven:** the ISO builds on this
+- **Phase 1 (daily) is DONE and boot-proven:** the ISO builds on this
   host (WSL1 + `mmdebstrap` + the OFD-lock shim from `docs/GAP-REPORT.md` §11) and
   passes the strict boot gate under WHPX QEMU — `OBSIDIAN-OS-READY` in ~7 s, all
   required markers present, both stock-Debian fingerprints absent, `flavor=daily`.
   Evidence: commit `bdd660a`, ISO `obsidian-daily-trixie-amd64.iso`
   (sha256 `fb818a9379ddca9778a59d41b30718c6023454fc06e11197d648a7b6ef7e2212`).
-- **Phase 1 (ghost):** full build + strict boot gate in progress on this host.
+- **Phase 1 (ghost) is DONE and boot-proven:** `OBSIDIAN-OS-READY flavor=ghost`
+  in 7.8 s on the same gate, `ghost-amnesic: set` + `kernel-lockdown: 1`
+  attested. ISO `obsidian-ghost-trixie-amd64.iso`
+  (sha256 `baf82be9dd3995b7764bd4492bbc87eb342170e70c7159657e1ba55c0bd69c75`).
 - The CI pipeline (`.github/workflows/build-iso.yml`, `tests/boottest.sh`) exists
   and shares the marker file with the Windows runner, but has not yet been
   executed on GitHub; the local WHPX run is the current source of truth.
@@ -198,5 +201,6 @@ Assistant documents it; an OSINT agent run completes with a report artifact.
 > The earlier claim that "offline ISO build is impossible / the moment the repo
 > lands on GitHub, CI produces the first ISO" was wrong on this host: a full
 > build and a hardware-accelerated boot test both run locally. Next ticks:
-> 1.4 ghost gate → 1.5/1.6/1.7 (installer, Secure Boot + UKI, hardened kernel)
+> 1.5/1.6/1.7 (installer, Secure Boot + UKI, hardened kernel — both flavors'
+> boot gates are now green)
 > → Phase 2 desktop (the largest remaining gap, see `docs/GAP-REPORT.md` §2).

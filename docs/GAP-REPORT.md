@@ -614,7 +614,36 @@ boottest: PASS
   demonstrated red against the un-branded build of the same pipeline (§14.2) and
   its `forbidden` markers are the exact fingerprints the problematic `debian-live`
   substitution would have produced (§1.1).
-- Remaining Phase 1 items are untouched by this: ghost (build + gate in flight),
-  the encrypted installer, Secure Boot/UKI and the hardened kernel are all still
-  open.
+- Remaining Phase 1 items are untouched by this: the encrypted installer,
+  Secure Boot/UKI and the hardened kernel are all still open.
+
+### 14.4 Ghost flavor: second green gate (2026-09-29)
+
+The full ghost rebuild (~21 min bootstrap + package phase on the same host)
+produced a second green run with the same strict gate:
+
+```
+ok  OBSIDIAN-OS-MARKER v1
+ok  OBSIDIAN-OS-READY
+ok  OBSIDIAN-CHECK sysctl-overlay: present
+ok  OBSIDIAN-CHECK apparmor:
+ok  OBSIDIAN-CHECK firstboot:
+ok  flavor=ghost
+boottest: PASS (log: .../obsidian-boot-20260929-194826.log)
+```
+
+- `OBSIDIAN-OS-READY flavor=ghost` at 7.76 s; `host=obsidian-ghost`.
+- Ghost-specific attestations all landed: `ghost-amnesic: set`,
+  `kernel-lockdown: 1` (the `lockdown=confidentiality` cmdline.extra value is
+  actually enforced), `apparmor: Y`, `aslr: 2`, `perf-paranoid: 3`.
+  `mac-randomize: ?` and `nftables-table: not-loaded` are the same two
+  honest unknowns as daily (documented gaps, not failures).
+- The banner again reads `Obsidian OS (trixie)` — no stock-Debian fingerprint.
+- ISO: `obsidian-ghost-trixie-amd64.iso`, sha256
+  `baf82be9dd3995b7764bd4492bbc87eb342170e70c7159657e1ba55c0bd69c75`
+  (263,655,424 bytes), copied to `build/out/` and verified byte-identical to
+  the WSL build output.
+
+Phase 1 now has both flavors green. The remaining Phase 1 items (installer,
+Secure Boot/UKI, hardened kernel) are documented in `docs/PLAN.md`.
 
