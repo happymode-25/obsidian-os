@@ -1,37 +1,170 @@
 # Obsidian OS — guided installer (Calamares)
 
-Phase 1.4 deliverable. The debos recipe produces a *live* ISO; `calamares`
-gives the installed-system path: language → keyboard → timezone → partition
-(LUKS2) → user → bootloader (systemd-boot + Secure Boot enrollment) → reboot
-into the first-boot wizard (`scripts/firstboot-wizard`).
+Phase 1.4 skeleton, extended by task 1.5 with the encrypted install path.
+The debos/build recipe produces a *live* ISO; `calamares` is supposed to give
+the installed-system path: language → keyboard → timezone → partition (LUKS2) →
+user → bootloader → reboot into the first-boot wizard
+(`scripts/firstboot-wizard`).
+
+> **These are configuration files, and they have never been run.** Nothing in
+> this directory has been executed by Calamares, booted from a real disk, or
+> checked in a VM. Every key name was verified against the upstream Calamares
+> sources (and several of the skeleton's were not real keys — see "Schema"
+> below), but a config that parses is not an install that works. The design and
+> the open risks are written up in [`../../docs/INSTALLER.md`](../../docs/INSTALLER.md).
 
 ## Layout
 
 ```
 debos/installer/
-├── settings.conf          # Calamares session config (view + exec order)
+├── settings.conf          # session config: view order + exec order + instances
 └── modules/
-    ├── partition.conf     # LUKS2 + guided partitions (root:/home:/var-lib)
-    ├── bootloader.conf    # systemd-boot + Secure Boot
-    └── users.conf         # admin user, password policy
+    ├── partition.conf       # encrypted default: ESP + LUKS2 / /home / vmdata
+    ├── partition-plain.conf # same layout, unencrypted (instance partition@plain)
+    ├── unpackfs.conf        # squashfs -> target
+    ├── fstab.conf           # /etc/fstab + /etc/crypttab
+    ├── grubcfg.conf         # /etc/default/grub (turns GRUB_CRYPTODISK on)
+    ├── luksbootkeyfile.conf # key-file keyslot KDF; module OFF by default
+    ├── bootloader.conf      # EFI bootloader + LUKS-aware kernel cmdline
+    └── users.conf           # the single sudoer, matching firstboot-wizard
 ```
 
-## Wiring into the ISO
+## The encrypted install chain
 
-- The calamares config root is packed into the live rootfs:
-  `debos/overlays-src/common/etc/calamares/**`
-- Packaging: `obsidian-installer` metapackage (add to `PACKAGES` table in
-  `scripts/scaffold-packages.py`, Depends: `calamares`, `cryptsetup`,
-  `dosfstools`, `sbctl`, `systemd-boot`).
-- Boot menu gets an "Install Obsidian OS" entry alongside the live session.
+```
+welcome -> locale -> keyboard -> partition (Erase, LUKS2 pre-checked) -> users -> summary
+   | confirm
+   v
+partition   GPT, ESP 512 MiB unencrypted + /, /home, /var/lib/libvirt as three
+            separate LUKS2 containers (Argon2id passphrase keyslot)
+mount       target mounted, ESP at /boot/efi
+unpackfs    live squashfs -> target root
+fstab       /etc/fstab AND /etc/crypttab (luks,keyscript=/bin/cat)
+initramfs   rebuilt with the LUKS keyslot data
+grubcfg     /etc/default/grub, GRUB_ENABLE_CRYPTODISK=yes (computed, not set by hand)
+bootloader  grub-install on the disk holding the ESP, plus
+            rd.luks.uuid= / root=/dev/mapper/<mapper> on the kernel cmdline
+umount      -> finished
+   MISSING: sbctl enroll/sign + systemd-cryptenroll (scripts/boot-keys.sh)
+```
+
+## Schema: what these keys are
+
+Verified against upstream `calamares` (branch `calamares`): `settings.conf`,
+`src/calamares/Settings.cpp`, the `partition`, `users`, `fstab`, `grubcfg`,
+`luksbootkeyfile` and `unpackfs` modules, and `bootloader/` (which is a Python
+module with `bootloader.schema.yaml`, `additionalProperties: false` — an unknown
+key there is an error, not a warning).
+
+Keys in the 1.4 skeleton that are **not** keys of the module they sat in, and
+have been corrected or dropped:
+
+| Skeleton key | Reality |
+|---|---|
+| `partition.efiSystemPartition: true` | deprecated alias for `efi.mountPoint`, which is a *string*; now the nested `efi:` map |
+| `partition.swap.numSwapDevices` | not a key; `userSwapChoices: [none]` replaces it |
+| `partition.luks.*` | this module has no `luks` map; `luksGeneration` + `enableLuksAutomatedPartitioning` are the real knobs |
+| `partition.disablePartitionIds` | not a key |
+| `partition.mountOptions` | not a key; no per-mount options field exists (see gap 4) |
+| `bootloader.efiBootLoaderId` | real key is `efiBootloaderId` (lowercase "l"); the skeleton would have been rejected |
+| `bootloader.timeout`, `kernel:`, `tpm:`, `useBiosGrub` | not in the schema; kernel args go in `kernelParams` (a list) |
+| `users.userGroup` | not a key; `defaultGroups` (a list) replaces it |
+| `users.passwordRequirements.nonRepeatingChars` | not read; moved to `libpwquality: maxrepeat=3` |
+| `users.hostname: obsidian-os` | `hostname` is a map (`location`, `writeHostsFile`) |
+| `settings.installMode`, `showDebugOutput`, `netinstall` | not settings.conf keys |
+
+Two names in the task brief are not Calamares options at all, and are not
+written into the configs: **`luksName`** (the mapper name is generated by the
+module and published as `luksMapperName`; nothing renames it) and
+**`installEFI` / `bootLoaderLocation`** on the bootloader module (the EFI
+install is implied by the firmware type, and the ESP's parent disk is found by
+the module itself with `lsblk -o PKNAME`).
+
+## Wiring into the ISO — NOT DONE
+
+The 1.4 README claimed a config root at `debos/overlays-src/common/etc/calamares/**`
+and an `obsidian-installer` metapackage. Neither exists:
+
+- `debos/overlays-src/` does not exist. The only way these files reach
+  `/etc/calamares/` today is for someone to copy them there.
+- There is no `obsidian-installer` in `scripts/scaffold-packages.py`'s
+  `PACKAGES` table and no such directory under `debos/packages/`.
+- `build/flavors/common.pkgs` has `initramfs-tools`, `live-boot` and
+  `squashfs-tools` — and **not** `calamares`, `cryptsetup`, `dosfstools`,
+  `sbctl`, `efibootmgr`, `grub-efi-amd64-bin` or `dracut`. The installer is not
+  in the image, so there is no installer to boot.
+- The GRUB menu that the live ISO boots from is generated by
+  `build/build-iso.sh`; the "Install Obsidian OS" entry does not exist in it.
+
+## What remains
+
+1. Put the configs in the image at `/etc/calamares/` (settings.conf + modules/),
+   and add a `branding` component — `branding: default` will render upstream's
+   sample branding, not Obsidian OS.
+2. Add the packages: `calamares`, `cryptsetup`, `dosfstools`, `efibootmgr`,
+   `grub-efi-amd64-bin`, plus the Secure Boot set (`sbctl`) for task 1.6.
+   `grub-efi-amd64-bin` is not optional: the bootloader module shells out to
+   `grub-install` inside the target.
+3. Add a "Install Obsidian OS" entry to the GRUB menu in `build/build-iso.sh`
+   that boots the live session with the installer.
+4. The missing module config files. Present here: partition, partition-plain,
+   unpackfs, fstab, grubcfg, luksbootkeyfile, bootloader, users. Still to be
+   written: `mount`, `welcome`, `locale`, `keyboard`, `machineid`, `localecfg`,
+   `initcpiocfg`, `initcpio`, `displaymanager`, `networkcfg`, `hwclock`,
+   `services-systemd`, `initramfs`, `umount`, `summary`, `finished`.
+   A module with no config file fails to load, so the sequence does not run as
+   it stands.
+5. The post-install exec step: `scripts/boot-keys.sh enroll` / `sign` / `tpm`
+   and `scripts/finalize.sh obsidian`. `shellprocess` is a real upstream module
+   for this and its config keys were not verified here, so no instance was
+   written (gap 3).
+6. The runtime "encrypted or plain layout?" switch (`packagechooser` +
+   `packagechooserq`), so both layouts are offered rather than one being chosen
+   by editing settings.conf.
+
+## How to validate
+
+Config-level checks that need no disk and no ISO:
+
+```sh
+# every module named in the sequence has a config file
+grep -A40 '^sequence:' debos/installer/settings.conf   # by eye; no wiring exists yet
+# the instance referenced by the sequence resolves
+#   partition@plain -> modules/partition-plain.conf
+# the YAML parses (any YAML parser; the tree has no calamares dependency yet)
+python3 -c "import yaml,glob;[yaml.safe_load(open(f)) for f in
+  ['debos/installer/settings.conf']+glob.glob('debos/installer/modules/*.conf')]"
+```
+
+The checks that matter cannot be done from a config file. A real validation
+run is, in increasing order of cost:
+
+1. Boot the live ISO under QEMU with two disks (one for the install target),
+   run Calamares to completion, reboot the target disk natively, and confirm
+   the LUKS2 root prompts, unlocks, and mounts all three containers.
+2. Confirm the non-encrypted path the same way with `partition@plain`.
+3. On real hardware: TPM2 auto-unlock, Secure Boot state, and a real firmware
+   NVRAM entry for the installed bootloader.
+
+Until step 1 has been run, treat this directory as a design, not as a feature.
+The three things most likely to be wrong are listed as gaps 1-3 in
+`docs/INSTALLER.md`.
 
 ## Security properties the installer must preserve
 
-1. **LUKS2 (Argon2id)** on `/`, `/home`, `/var/lib/libvirt` — separate
-   containers, mounted explicitly in generated fstab.
-2. **TPM2 auto-unlock opt-in** — post-install hook:
-   `systemd-cryptenroll --tpm2-device=auto` for the root container.
-3. **Secure Boot** — keys created/enrolled at install
-   (`scripts/boot-keys.sh enroll`) and the UKI signed before reboot.
-4. No "reset password" backdoors in the installed system; recovery happens
-   through TPM/keys or the live ISO, never a hidden shell.
+1. **LUKS2 (Argon2id) on `/`, `/home`, `/var/lib/libvirt`** — three separate
+   containers. The passphrase keyslot's KDF is cryptsetup's LUKS2 default
+   (argon2id); the one *configurable* KDF, `luks2Hash` in
+   `luksbootkeyfile.conf`, applies to the key-file keyslot only.
+2. **TPM2 auto-unlock** — `scripts/boot-keys.sh tpm` runs
+   `systemd-cryptenroll --tpm2-device=auto` on the root container. It is not
+   invoked by any config here (gap 3).
+3. **Secure Boot** — `scripts/boot-keys.sh enroll` / `sign` (sbctl keys,
+   UKIs under `/boot/EFI/Linux`). Also not invoked here (gap 3); this is task
+   1.6.
+4. **No passphrase-less key file by default** — `luksbootkeyfile` is
+   deliberately left out of the exec phase. It opens the volumes without the
+   passphrase, which is only acceptable once the TPM2 path works.
+5. No "reset password" backdoors in the installed system; recovery happens
+   through TPM/keys or the live ISO, never a hidden shell. `setRootPassword` is
+   false and `displayAutologin` is false for the same reason.
