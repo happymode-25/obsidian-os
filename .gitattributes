@@ -1,0 +1,17 @@
+# Force LF everywhere — Obsidian OS targets Linux/CI; CRLF breaks shell scripts.
+* text=auto eol=lf
+
+# Explicit safety for script-like files
+*.sh   text eol=lf
+*.ps1  text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.rs   text eol=lf
+*.py   text eol=lf
+*.conf text eol=lf
+
+# Files that must never be normalized
+*.png  binary
+*.jpg  binary
+*.pdf  binary
+*.iso  binary

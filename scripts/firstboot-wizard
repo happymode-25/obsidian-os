@@ -1,0 +1,106 @@
+#!/bin/bash
+# Obsidian OS — first-boot setup wizard (CLI engine; the GTK4 wizard drives this)
+# Steps:
+#   1) language / keyboard / locale
+#   2) user account (name, admin, password) -> LUKS2 key
+#   3) privacy level: Standard | Hardened | Ghost   (sets posture + overlays)
+#   4) profile: Daily Driver | Developer | Pentester | Server | Privacy-Max
+#   5) pentest CONSENT step ONLY for Pentester/profile w/ offensive tools:
+#        "I will use these tools only on systems I own or have explicit written
+#         authorization to test."  -> writes /var/log/obsidian/consent.json
+#   6) channel (rolling/stable), theme preset, optional 32-bit/low-end mode
+#   7) boot key: enroll TPM2 (recommended) and/or passphrase
+# Logging: steps mirrored to /var/log/obsidian/firstboot.log (volatile in Ghost)
+set -euo pipefail
+
+LOG=/var/log/obsidian
+[ -d $LOG ] || mkdir -p $LOG
+step() { echo "==> $*" | tee -a $LOG/firstboot.log; }
+
+answer() { # prompt, default -> echoes selection
+    local p="$1" d="$2"
+    printf '%s [%s]: ' "$p" "$d"
+    read -r a; echo "${a:-$d}"
+}
+
+# 1 ----- language
+LANG_CFG="$(answer 'Language code (de, es, fr, en …)' en)"
+case "$LANG_CFG" in
+  en) LOCALE="en_US.UTF-8";    KB="us" ;;
+  de) LOCALE="de_DE.UTF-8";    KB="de" ;;
+  es) LOCALE="es_ES.UTF-8";    KB="es" ;;
+  fr) LOCALE="fr_FR.UTF-8";    KB="fr" ;;
+  *)  LOCALE="en_US.UTF-8";    KB="us" ;;
+esac
+step "locale=$LOCALE keyboard=$KB"
+
+# 2 ----- user
+USER_NAME="$(answer 'Full name' 'Obsidian User')"
+USER_LOGIN="$(answer 'Username' obsidian)"
+step "user=$USER_LOGIN"
+
+# 3 ----- privacy
+PRIV="$(answer 'Privacy level? (standard/hardened/ghost)' standard)"
+case "$PRIV" in
+  standard) posture=standard ;;
+  hardened) posture=hardened ;;
+  ghost)    posture=ghost ;;
+  *)        die "unknown privacy: $PRIV" ;;
+esac
+step "privacy=$posture"
+
+# 4 ----- profile
+PROFILE="$(answer 'Tool profile? (daily-driver/developer/pentester/server/privacy-max)' daily-driver)"
+case "$PROFILE" in
+  daily-driver|developer|pentester|server|privacy-max) ;;
+  *) die "unknown profile: $PROFILE" ;;
+esac
+[ "$PROFILE" = "privacy-max" ] && posture=ghost
+step "profile=$PROFILE posture=$posture"
+
+# 5 ----- consent gate (only when offensive tooling would be made available)
+if [ "$PROFILE" = "pentester" ]; then
+    printf '\n\033[31mSECURITY TOOLS:\033[0m this profile installs offensive security tooling\n'
+    printf '(scanning, exploitation, C2-lab, wireless, forensics).\n\n'
+    printf 'By proceeding you confirm: "I will only use these tools against systems\n'
+    printf 'I own or have written authorization to test."\n\n'
+    ok="$(answer 'I have authorization to test these systems? (yes/no)' no)"
+    if [ "$ok" != "yes" ]; then
+        step "consent DENIED - offensive tooling stays disabled"
+        echo "consent=denied" > /etc/obsidian/consent.state
+        echo "set profile to developer instead." >&2
+        PROFILE=developer
+    else
+        step "consent GRANTED - ledger written"
+        echo "consent=granted $(date -Iseconds) user=$USER_LOGIN" >> /var/log/obsidian/consent.json
+        echo "consent=granted" > /etc/obsidian/consent.state
+    fi
+fi
+
+# 6 ----- channel + theme + low-end
+CHAN="$(answer 'Update channel? (rolling/stable)' rolling)"
+THEME="$(answer 'Theme preset? (windows11/windows10/macos/gnome)' windows11)"
+LITE="n"
+[ "$(answer 'Enable 32-bit / low-end mode? (y/n)' n)" = "y" ] && LITE=y
+step "channel=$CHAN theme=$THEME lite=$LITE"
+
+# 7 ----- persistence of choices (consumed by scripts/apply-profile + enable-services)
+mkdir -p /etc/obsidian
+{
+  echo "user_login=$USER_LOGIN"
+  echo "user_name=$USER_NAME"
+  echo "locale=$LOCALE"
+  echo "keyboard=$KB"
+  echo "privacy=$posture"
+  echo "profile=$PROFILE"
+  echo "channel=$CHAN"
+  echo "theme=$THEME"
+  echo "lite_mode=$LITE"
+} > /etc/obsidian/firstboot.cfg
+
+# apply profile + posture (idempotent)
+/etc/obsidian/scripts/apply-profile.sh "$PROFILE"
+/etc/obsidian/scripts/finalize.sh obsidian
+
+printf '\033[32mFirst boot configured. Welcome to Obsidian OS.\033[0m\n'
+exit 0

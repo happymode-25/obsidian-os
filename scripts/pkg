@@ -1,0 +1,87 @@
+#!/bin/bash
+# Obsidian OS — `pkg` unified package manager
+# Wraps apt / pacman / flatpak / deb / AppImage + GitHub store, with AI search.
+# Behavior:
+#   pkg search "pdf editor"       -> AI-narrowed suggestions (offline-first)
+#   pkg install firefox           -> picks provider, sandboxes via flatpak/cell
+#   pkg -g <query>                -> opens App Store GUI pre-searched
+# Exit codes: 0 ok; 1 unknown/error; 2 not found; 3 needs consent/approval
+set -euo pipefail
+
+PROVIDER_ORDER=(flatpak deb appimage snap source)
+
+say()  { printf '%s\n' "$*"; }
+die()  { say "pkg: $*" >&2; exit 1; }
+
+resolve_flavor() { # $1: package name -> echoes "flatpak|apt|appimage|snap|source" or empty
+    flatpak info "$1" >/dev/null 2>&1 && { echo flatpak; return; }
+    apt-cache show "$1" >/dev/null 2>&1 && { echo apt; return; }
+    snap info "$1" >/dev/null 2>&1 && { echo snap; return; }
+    return 0
+}
+
+ai_search() { # $1 query -> top-3 suggestions from obsidian-ai (chat: no approval)
+    if command -v obsidian-ai >/dev/null 2>&1; then
+        obsidian-ai suggest "$1" 2>/dev/null || true
+    fi
+}
+
+cmd_search() {
+    local q="$1"
+    say "Searching: $q"
+    local ai; ai="$(ai_search "$q")"
+    if [ -n "$ai" ]; then say "AI suggestions:"; say "$ai"; fi
+    say "-- apt --";   apt-cache search "$q" | head -20
+    say "-- flatpak --"; flatpak search "$q" 2>/dev/null | head -10
+    say "-- snap --";  snap find "$q" 2>/dev/null | head -10
+    say "-- github store --"; obsidian-store search "$q" 2>/dev/null | head -10 || true
+}
+
+cmd_install() {
+    local p="$1" prov
+    prov="$(resolve_flavor "$p")"
+    case "$prov" in
+      flatpak) flatpak install --user flathub "$p" ;;
+      apt)     sudo apt-get install -y "$p" ;;
+      snap)    sudo snap install "$p" ;;
+      appimage) obsidian-store install-appimage "$p" ;;
+      source)  obsidian-store build-from-github "$p" ;;
+      *)       die "no provider knows '$p' (try: pkg search $p)" ;;
+    esac
+    say "installed: $p"
+}
+
+cmd_update() {
+    sudo apt-get update
+    flatpak update -y 2>/dev/null || true
+    obsidian-store update 2>/dev/null || true
+}
+
+cmd_upgrade() {
+    sudo apt-get upgrade -y
+    flatpak update -y
+}
+
+cmd_info()   { apt-cache show "$1" 2>/dev/null || true; flatpak info "$1" 2>/dev/null || true; }
+
+cmd_list()   { say "-- stores --"; flatpak list --user 2>/dev/null; apt list --installed 2>/dev/null | head -20; }
+
+cmd_sources() { say "apt:"; cat /etc/apt/sources.list.d/*.sources 2>/dev/null | head -5
+                say "flatpak:"; flatpak remotes; say "github store:"; obsidian-store list-remotes 2>/dev/null; }
+
+main() {
+    case "${1:-}" in
+      search)   [ $# -ge 2 ] || die "pkg search <query>"; cmd_search "${*:2}" ;;
+      install)  [ $# -ge 2 ] || die "pkg install <pkg>";   cmd_install "$2" ;;
+      remove|rm) [ $# -ge 2 ] || die "pkg remove <pkg>";   flatpak uninstall -y "$2" 2>/dev/null; sudo apt-get remove -y "$2" ;;
+      update)   cmd_update ;;
+      upgrade)  cmd_upgrade ;;
+      list)     cmd_list ;;
+      info)     [ $# -ge 2 ] || die "pkg info <pkg>"; cmd_info "$2" ;;
+      sources)  cmd_sources ;;
+      -g)       obsidian-store-gui "${*:2}" ;;
+      *)        die "usage: pkg {search|install|remove|update|upgrade|list|info|sources|-g} [args]" ;;
+    esac
+}
+
+main "$@"

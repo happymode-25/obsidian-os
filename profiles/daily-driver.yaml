@@ -1,0 +1,45 @@
+# Obsidian OS profile: daily-driver
+# Posture: Standard · Toolset: desktop essentials · Session: full DE
+
+name: daily-driver
+label: Daily Driver
+posture: standard
+session: obsidianwm        # full Wayland desktop
+channel: rolling           # or stable
+footprint: full
+
+packages:
+  - obsidian-desktop
+  - obsidian-apps-extra
+  - firefox-esr
+  - libreoffice
+  - gimp
+  - vlc
+  - flatpak
+  - wine64
+  - gamescope
+  - steam
+
+gui: true
+security:
+  mandatory_access_control: apparmor   # complain mode default
+  firewall_egress: default
+  secure_boot: true
+  disk_encryption: luks2               # prompt for passphrase at install
+  mac_randomization: per-network
+  dns: dot
+  sandbox_apps: cell-default           # bubblewrap cells, network allowed
+  telemetry: opt-in-crash-only
+
+firstboot:
+  languages: [any]
+  presets:
+    themes: [windows11, windows10, macos, gnome]
+    accent: auto
+  partner_recommend:
+    - browser-updater
+    - office
+
+# ====== intended for =====================================================
+# A person who wants a Windows 11-feeling desktop that is Linux underneath,
+# encrypted, updated, and not spying on them.

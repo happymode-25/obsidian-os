@@ -1,0 +1,38 @@
+#!/bin/bash
+# Obsidian OS — restorectl: Windows-style "System Restore" over Btrfs/Snapper
+# (or Timeshift on ext4).
+#   restorectl list                 # restore points
+#   restorectl create "before update"
+#   restorectl boot                 # set boot-time restore point
+#   restorectl restore <n>          # roll back snapshot <n> (needs reboot)
+#   restorectl stats
+set -euo pipefail
+
+say() { printf '%s\n' "$*"; }
+die() { say "restorectl: $*" >&2; exit 1; }
+
+[ "$(id -u)" -eq 0 ] || die "run as root"
+
+fs_type() {
+    findmnt -no FSTYPE / && return 0 || die "cannot determine root filesystem"
+}
+
+case "${1:-list}" in
+  list)
+    if [ "$(fs_type)" = "btrfs" ]; then snapper -c obsidian list --columns number,type,date,description
+    else timeshift --list 2>/dev/null || say "no snapshots yet (ext4 mode: run 'restorectl create')"; fi ;;
+  create)
+    desc="${2:-manual restore point}"
+    if [ "$(fs_type)" = "btrfs" ]; then snapper -c obsidian create -d "$desc"
+    else timeshift --create --comments "$desc" 2>/dev/null || die "timeshift create failed"; fi ;;
+  boot)
+    if [ "$(fs_type)" = "btrfs" ]; then snapper -c obsidian create -d "boot" -p
+    else timeshift --create --comments boot 2>/dev/null || true; fi ;;
+  restore)
+    [ -n "${2:-}" ] || die "restorectl restore <n>"
+    say "restore to snapshot $2 (reboot required)."
+    if [ "$(fs_type)" = "btrfs" ]; then snapper -c obsidian rollback "$2"
+    else say "ext4 restore via timeshift: timeshift --restore --snapshot '$2'"; fi ;;
+  stats)  btrfs filesystem usage / 2>/dev/null || df -h / ;;
+  *) die "usage: restorectl {list|create|boot|restore <n>|stats}" ;;
+esac

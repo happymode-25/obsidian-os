@@ -1,0 +1,56 @@
+# Obsidian OS profile: privacy-max  ("Ghost")
+# Posture: Ghost (anti-forensic) · Toolset: privacy stack · Session: live/amnesic optional
+#
+# Ghost capabilities engage the moment first-boot completes:
+#   - journald volatile (logs die on reboot), no core dumps
+#   - zram encrypted swap only, no disk swap
+#   - per-boot random MAC + rotating hostname
+#   - Transparent Tor (kill-switch enforced), DoH for non-Tor apps
+#   - Amnesic live mode available from the boot menu (overlay root on tmpfs)
+#   - Memory wipe hooks on shutdown
+#   - VeraCrypt-compatible vault for anything you intentionally persist
+
+name: privacy-max
+label: Privacy-Max (Ghost)
+posture: ghost
+session: obsidianwm              # or headless for tails-like minimal
+channel: rolling
+footprint: minimal-live
+
+packages:
+  - obsidian-ghost
+  - tor torsocks obfs4proxy
+  - wireguard-tools
+  - veracrypt
+  - macchanger
+  - secure-delete
+  - iptables nftables
+  - fwupd-efi
+
+amnesic:
+  overlay: tmpfs                 # rd.live.overlay.overlayfs
+  persist_nothing: true
+  usb_hotplug_offload: true
+
+queue:
+  tor_egress: true               # the ONLY network path when engaged
+  kill_switch_hotkey: true       # obsidian-button
+  mac_spoof_per_boot: true
+  hostname_rotate_per_boot: true
+  dns: tor-resolve
+  swap: zram-encrypted
+  logs: none
+  core_dumps: disabled
+  telemetry: off
+
+security:
+  mandatory_access_control: apparmor-enforce
+  kernel_lockdown: confidentiality
+  secure_boot: true
+  disk_encryption: luks2         # vault and any persisted volumes
+
+# ====== intended for =====================================================
+# Journalists, activists, and anyone who needs strong anti-traceability with a
+# Windows-like interface. Balanced by honest limits in docs/LEGAL.md: no OS can
+# guarantee anonymity against a determined adversary; this reduces the attack
+# surface and the forensic residue to a minimum.

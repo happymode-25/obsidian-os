@@ -1,0 +1,336 @@
+# Obsidian OS — Tool Integration Manifest
+# Every security/hacking tool the Security Center can install and launch.
+#
+# RULES (enforced by securityctl / consent flow):
+#   - default: disabled. The tool's launcher exists but will not run.
+#   - enable requires: pentester profile (or server+redteam role) AND per-tool
+#     authorization granted in the consent flow (audited to consent.json).
+#   - install_method: base image / pip / brew?/ git / apt / binary / flatpak
+#   - gui: native-shell=true shows a GTK4 launcher card + an embedded shell tab.
+#   - all tools auto-update via obsidian-updater daily (user-authorized).
+version: 1
+
+categories:
+  # ------------------------------------------------------------------ AI ASSISTANTS
+  ai-pentest:
+    label: AI Pentest Assistants
+    tools:
+      - id: hackbot
+        name: HackBot
+        repo: https://github.com/dsaparikh/HackBot
+        install: pip
+        gui: shell
+        note: Multi-LLM pentest Copilot-style assistant; local-first via obsidian-ai.
+      - id: athena
+        name: Athena OS tools
+        repo: https://github.com/Athena-OS/athena-iso
+        install: deb
+        gui: shell
+        note: Toolbox layer; we import selected scripts only (licensed GPL/OSI).
+      - id: pentaia
+        name: PentAiA
+        repo: https://github.com/PentAir/PentAiA
+        install: pip
+        gui: shell
+      - id: bugtraceai
+        name: BugTraceAI
+        repo: https://github.com/ossanii/BugTraceAI
+        install: pip
+        gui: shell
+      - id: pentestgpt
+        name: PentestGPT
+        repo: https://github.com/GreyDGL/PentestGPT
+        install: pip
+        gui: shell
+      - id: cai
+        name: CAI (Cybersecurity AI)
+        repo: https://github.com/aliasrobotics/cai
+        install: pip
+        gui: shell
+
+  # ------------------------------------------------------------------ OSINT
+  osint:
+    label: OSINT
+    tools:
+      - id: shadowbroker
+        name: ShadowBroker
+        repo: https://github.com/MazeZ-Dev/ShadowBroker
+        install: pip
+        gui: shell
+      - id: third-eye
+        name: Third-Eye
+        repo: https://github.com/TebbaaX/third-eye
+        install: pip
+        gui: shell
+      - id: spiderfoot
+        name: SpiderFoot
+        repo: https://github.com/smicallef/spiderfoot
+        install: pip
+        gui: web
+      - id: maltego
+        name: Maltego CE
+        repo: https://www.maltego.com/downloads/
+        install: deb
+        gui: native
+      - id: theharvester
+        name: theHarvester
+        repo: https://github.com/laramies/theHarvester
+        install: pip
+        gui: shell
+      - id: amass
+        name: Amass
+        repo: https://github.com/owasp-amass/amass
+        install: binary
+        gui: shell
+
+  # ------------------------------------------------------------------ RECON / SCANNING
+  recon-scan:
+    label: Recon & Scanning
+    tools:
+      - id: nmap
+        name: Nmap
+        repo: https://github.com/nmap/nmap
+        install: apt
+        gui: zenmap-card        # GUI Scanner card per brief (Zenmap-style)
+      - id: nuclei
+        name: Nuclei (GUI Scanner)
+        repo: https://github.com/projectdiscovery/nuclei
+        install: binary
+        gui: native             # Nuclei GUI Scanner wrapper
+      - id: vulnscope
+        name: VulnScope
+        repo: https://github.com/DiabloHacker/VulnScope
+        install: binary
+        gui: native
+      - id: sentinelx
+        name: SentinelX
+        repo: https://github.com/blakeblackshear/sentinel
+        install: binary
+        gui: native
+      - id: netpeek
+        name: Netpeek
+        repo: https://github.com/Findomain/Findomain
+        install: binary
+        gui: shell
+      - id: scanopy
+        name: Scanopy
+        repo: https://github.com/parrot-ass/scanopy
+        install: binary
+        gui: native
+      - id: noderadar
+        name: NodeRadar-Pro
+        repo: https://github.com/altwikid/noderadar
+        install: binary
+        gui: native
+      - id: wireshark
+        name: Wireshark
+        repo: https://gitlab.com/wireshark/wireshark
+        install: apt
+        gui: native
+      - id: burp
+        name: Burp Suite Community
+        repo: https://portswigger.net/burp/communitydownload
+        install: deb
+        gui: native
+      - id: nikto
+        name: Nikto
+        repo: https://github.com/sullo/nikto
+        install: apt
+        gui: shell
+
+  # ------------------------------------------------------------------ WEB / APP SEC
+  webappsec:
+    label: Web & AppSec
+    tools:
+      - id: zap
+        name: OWASP ZAP
+        repo: https://github.com/zaproxy/zaproxy
+        install: binary
+        gui: native
+      - id: zerothreat
+        name: ZeroThreat AI Recorder
+        repo: https://github.com/zerothreatai/zerothreat-ai-scanner
+        install: binary
+        gui: native
+
+  # ------------------------------------------------------------------ C2 / POST-EXPLOIT
+  c2:
+    label: C2 / Post-Exploitation (LAB ONLY)
+    tools:
+      - id: mythic
+        name: Mythic
+        repo: https://github.com/its-a-feature/Mythic
+        install: container     # docker compose in c2 Cell (no external egress)
+        gui: web
+      - id: adaptix
+        name: AdaptixC2
+        repo: https://github.com/Adaptix-Developers/AdaptixC2
+        install: binary
+        gui: web
+      - id: havoc
+        name: Havoc
+        repo: https://github.com/HavocFramework/Havoc
+        install: apt-build
+        gui: native
+      - id: sliver
+        name: Sliver
+        repo: https://github.com/BishopFox/sliver
+        install: binary
+        gui: shell
+      - id: metasploit
+        name: Metasploit Framework
+        repo: https://github.com/rapid7/metasploit-framework
+        install: apt
+        gui: shell
+      - id: searchsploit
+        name: exploitdb/searchsploit
+        repo: https://gitlab.com/exploit-database/exploitdb
+        install: apt
+        gui: shell
+      - id: bloodhound
+        name: BloodHound CE
+        repo: https://github.com/SpecterOps/BloodHound
+        install: container
+        gui: web
+      - id: impacket
+        name: Impacket
+        repo: https://github.com/fortra/impacket
+        install: pip
+        gui: shell
+      - id: responder
+        name: Responder
+        repo: https://github.com/lgandx/Responder
+        install: git
+        gui: shell
+
+  # ------------------------------------------------------------------ PASSWORDS
+  passwords:
+    label: Passwords & Credentials
+    tools:
+      - id: hashcat
+        name: Hashcat (+ GUI dashboard)
+        repo: https://github.com/hashcat/hashcat
+        install: apt
+        gui: native            # hashcat GTK dashboard card
+      - id: john
+        name: John the Ripper
+        repo: https://github.com/openwall/john
+        install: apt
+        gui: shell
+      - id: clats
+        name: ClatsCracker
+        repo: https://github.com/realhitori/ClatsCracker
+        install: git
+        gui: shell
+
+  # ------------------------------------------------------------------ WIRELESS
+  wireless:
+    label: Wireless
+    tools:
+      - id: aircrack
+        name: Aircrack-ng suite
+        repo: https://github.com/aircrack-ng/aircrack-ng
+        install: apt
+        gui: shell
+      - id: wiflux
+        name: Wiflux
+        repo: https://github.com/The-4n/wiflux
+        install: git
+        gui: shell
+      - id: kismet
+        name: Kismet
+        repo: https://github.com/kismetwireless/kismet
+        install: apt
+        gui: web
+      - id: hijacker
+        name: Hijacker (UI)
+        repo: https://github.com/christian-christensen/hijacker
+        install: apk-cross     # Android-side; mirrored UI card on desktop
+        gui: native
+
+  # ------------------------------------------------------------------ RE / FORENSICS
+  re-forensics:
+    label: Reverse Engineering & Forensics
+    tools:
+      - id: ghidra
+        name: Ghidra
+        repo: https://github.com/NationalSecurityAgency/ghidra
+        install: binary
+        gui: native
+      - id: bninja
+        name: Binary Ninja (if licensed)
+        repo: https://binary.ninja/
+        install: deb
+        gui: native
+      - id: r2
+        name: radare2 / Cutter
+        repo: https://github.com/radareorg/radare2 , https://github.com/rizinorg/cutter
+        install: apt / binary
+        gui: native            # Cutter
+      - id: iped
+        name: IPED
+        repo: https://github.com/sepinf-inc/IPED
+        install: binary
+        gui: native
+      - id: volatility
+        name: Volatility 3
+        repo: https://github.com/volatilityfoundation/volatility3
+        install: pip
+        gui: shell
+      - id: autopsy
+        name: Autopsy
+        repo: https://github.com/sleuthkit/autopsy
+        install: deb
+        gui: native
+      - id: revelare
+        name: Project Revelare
+        repo: https://github.com/parrottv/revelare
+        install: git
+        gui: shell
+
+  # ------------------------------------------------------------------ REPORTING
+  reporting:
+    label: Pentest Reporting
+    tools:
+      - id: pwndoc
+        name: PwnDoc-ng
+        repo: https://github.com/pwndoc-ng/pwndoc-ng
+        install: container
+        gui: web
+      - id: cervantes
+        name: Cervantes
+        repo: https://github.com/CervantesSec/cervantes
+        install: container
+        gui: web
+      - id: cosmic
+        name: Cosmic Axiom
+        repo: https://github.com/ariary/cosmic-axiom
+        install: git
+        gui: shell
+
+  # ------------------------------------------------------------------ HARDWARE
+  hardware:
+    label: Hardware Hacking
+    tools:
+      - id: marauder
+        name: ESP32 Marauder firmware + tooling
+        repo: https://github.com/justcallmekoko/ESP32Marauder
+        install: esptool
+        gui: shell
+      - id: buspirate
+        name: Bus Pirate tooling
+        repo: https://github.com/DangerousPrototypes/BusPirate5-firmware
+        install: git
+        gui: shell
+      - id: flipper
+        name: Flipper Zero integration
+        repo: https://github.com/flipperdevices/flipperzero-firmware
+        install: qFlipper + custom plugin bundle
+        gui: native
+
+# ------------------------------------------------------------------ SECURITY CENTER GROUPS
+# The Security Center builds its "Modules" view from this file:
+#   Grade / Recon-OSINT / Scan / Web / Wireless / Password / C2-lab /
+#   Forensics / Reporting / Hardware   (same order as above)
+# Plus Management modules (firewall, ids, aide, tor, vault, consent) in
+# apps/security-center/modules/*.yaml.

@@ -1,0 +1,46 @@
+# Obsidian OS profile: developer
+# Posture: Standard+ · Toolset: dev chain · Session: full DE
+
+name: developer
+label: Developer
+posture: standard-plus
+session: obsidianwm
+channel: rolling
+footprint: full
+
+packages:
+  - obsidian-desktop
+  - build-essential
+  - git curl wget jq
+  - podman
+  - docker.io docker-compose-v2
+  - code-oss
+  - python3-pip python3-venv
+  - nodejs npm golang rustc cargo
+  - gh act
+  - obsidian-agent-cli    # coding + automation agents
+  - kubectl              # optional k8s tooling
+  - qemu-system-x86     # nested VMs / Cells
+
+gui: true
+security:
+  mandatory_access_control: apparmor
+  firewall_egress: default
+  secure_boot: true
+  disk_encryption: luks2
+  mac_randomization: per-network
+  dns: dot
+  sandbox_apps: cell-opt-in        # dev containers unsandboxed by explicit grant
+  user_namespaces: on              # needed for podman rootless
+  telemetry: opt-in-crash-only
+
+firstboot:
+  languages: [any]
+  git_defaults:
+    push_behavior: simple
+  containers:
+    registry_mirror: none
+
+# ====== intended for =====================================================
+# Developers who want a Windows-like desktop, a real Linux toolchain,
+# containers, and an AI coding/automation agent wired into the shell.

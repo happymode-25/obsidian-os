@@ -1,0 +1,108 @@
+# Obsidian OS — CI/CD: build, boot-test, sign, release ISOs
+name: build-iso
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      flavor:
+        description: 'Flavor(s) to build'
+        type: choice
+        options: [all, daily, penta, server, ghost]
+        default: all
+
+jobs:
+  # ---- 1. build the obsidian-* metapackages from debos/packages ---------
+  build-packages:
+    runs-on: ubuntu-24.04
+    outputs:
+      repo: ${{ steps.repo.outputs.repo }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build .deb metapackages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y debhelper dpkg-dev
+          mkdir -p /tmp/obs-repo
+          for p in debos/packages/*/; do
+            (cd "$p" && dpkg-buildpackage -b -us -uc -d)
+          done
+          cp debos/packages/*.deb /tmp/obs-repo/ || true
+      - name: Index local repo (apt-ftparchive)
+        run: |
+          cd /tmp/obs-repo
+          dpkg-scanpackages . /dev/null | gzip -9 > Packages.gz
+      - name: Upload repo artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: obs-repo
+          path: /tmp/obs-repo
+          retention-days: 1
+
+  # ---- 2. build the ISO per flavor in the debos container ----------------
+  build-iso:
+    needs: build-packages
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [daily, server, ghost, penta]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download repo artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: obs-repo
+          path: repo
+      - name: Install QEMU (boot test side)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-utils
+      - name: Build ISO (debos container)
+        run: |
+          mkdir -p output
+          # debos runs as root inside the container; mount workdir read-write.
+          # Pin the image to a digest in production (reproducibility).
+          sudo docker run --rm --privileged \
+            -v "$GITHUB_WORKSPACE":/obsidian:Z \
+            -v "$GITHUB_WORKSPACE/repo":/srv:Z \
+            -w /obsidian \
+            ghcr.io/go-debos/debos:v1.1.16 \
+            -t flavor:${{ matrix.flavor }} \
+            debos/obsidian.yaml
+      - name: QEMU boot smoke test
+        run: |
+          ISO="$(ls output/obsidian-${{ matrix.flavor }}-*.iso | head -1)"
+          echo "testing: $ISO"
+          bash tests/boottest.sh "$ISO" "obsidian.target reached" 300
+      - name: Upload ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: obsidian-${{ matrix.flavor }}-iso
+          path: output/obsidian-${{ matrix.flavor }}-*.iso
+          retention-days: 60
+
+  # ---- 3. release assembly (tags only) ------------------------------------
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-iso
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum *.iso > SHA256SUMS
+          cat SHA256SUMS
+      - name: Draft release with ISOs + checksums
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**
+          draft: true
+          generate_release_notes: true

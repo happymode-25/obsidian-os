@@ -1,0 +1,34 @@
+# —— Obsidian OS .gitignore -------------------------------------------------
+# Build artifacts
+/output/
+*.iso
+*.img
+*.tar.xz
+*.tar.gz
+debos/overlays/*.tar
+debos/packages/*.deb
+archiso/work/
+
+# Python / tooling caches
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local secrets / keys (never commit)
+*.pem
+*.key
+secrets/
+keys/
+JUST-ONCE keys/
+
+# Logs from local runs
+*.log
+journal/

@@ -1,0 +1,44 @@
+# Obsidian OS profile: server
+# Posture: Hardened · Toolset: server stack · Session: headless (runit/s6 optional)
+
+name: server
+label: Server (Self-Host / Gateway)
+posture: hardened
+session: headless                # no desktop by default
+init: systemd                   # set "runit" or "s6" for minimal footprint
+footprint: minimal
+
+packages:
+  - obsidian-server-server      # metapackage: nginx/caddy, postgresql, sqlite,
+                                # docker, podman, netdata, core packages
+  - openssh-server
+  - wireguard-tools
+  - smartmontools
+  - rsync
+  - chrony
+
+roles:                          # one-click enable via serverctl / Server Hub
+  web: caddy                    # auto-TLS
+  database: postgresql-17
+  containers: podman            # rootless
+  nas: samba, nfs-kernel-server
+  reverse_proxy: caddy
+  dns: coreDNS
+  router: nftables-gw           # turns machine into gateway (opt-in, warns)
+  vm_host: libvirt
+
+gui: server-hub                  # web dashboard (optional, on LAN only)
+security:
+  mandatory_access_control: apparmor-enforce
+  firewall_egress: default
+  firewall_ingress: whitelist    # open only explicitly enabled roles
+  secure_boot: true
+  disk_encryption: luks2
+  ssh: key-only, no root login, passwordless sudo revoked
+  unattended_upgrades: security-only
+  telemetry: off
+
+# ====== intended for =====================================================
+# Homelab / small-server administrators who want a hardened, one-command
+# web+db+nas+vm+router platform with a Windows-style management hub reachable
+# from the LAN.

@@ -1,0 +1,58 @@
+# Obsidian OS — secondary recipe: Arch Linux (rolling), same overlays + profiles
+# Build:  debos -t flavor:daily debos/arch/obsidian-arch.yaml
+# Output: obsidian-arch-<flavor>-rootfs.tar.xz  (consumed by archiso → ISO;
+#         see debos/arch/README.md for the mkarchiso bridge).
+{{- $f := or .flavor "daily"}}
+{{- $profile := "daily-driver"}}
+{{- if eq $f "penta"}}{{$profile = "pentester"}}{{else if eq $f "server"}}{{$profile = "server"}}{{else if eq $f "ghost"}}{{$profile = "privacy-max"}}{{end}}
+
+architecture: x86_64
+
+actions:
+  # ---- base: arch-bootstrap (pacstrap equivalent) ------------------------
+  - action: arch-bootstrap
+    mirror: https://geo.mirror.pkgbuild.com
+    packages:
+      - base
+      - base-devel
+      - linux-hardened          # the hardened kernel, natively in Arch
+      - linux-hardened-headers
+
+  # ---- chroot install script: rest of the Obsidian-built stack -----------
+  - action: run
+    script: ../scripts/arch-install.sh
+
+  # ---- profile toolset -----------------------------------------------------
+  - action: run
+    script: ../../scripts/apply-profile.sh
+    args: {{ $profile }}
+
+  # ---- security overlays (same layer as the Debian recipe) ----------------
+  - action: unpack
+    file: ../overlays/common.tar
+  - action: unpack
+    file: ../overlays/{{ $profile }}.tar
+
+  # ---- enable services + finalize ------------------------------------------
+  - action: run
+    script: ../../scripts/enable-services.sh
+    args: "arch-{{ $f }}"
+
+  - action: run
+    script: ../../scripts/finalize.sh
+    args: "obsidian-arch-{{ $f }}"
+
+  # ---- pack: rootfs for the archiso bridge ---------------------------------
+  - action: pack
+    file: "obsidian-arch-{{ $f }}-rootfs.tar"
+    compression: xz
+
+# ------------------------------------------------------------------------------
+# Notes
+# ------------------------------------------------------------------------------
+#  - arch-bootstrap runs inside the target chroot; arch-install.sh installs the
+#    desktop/server equivalents (pacman) of the apt sets in obsidian.yaml.
+#  - The obsidian-* packages install from the custom repo when /etc/pacman.conf
+#    is seeded; otherwise the script falls back to vanilla packages (skeleton).
+#  - ISO assembly: this rootfs feeds `mkarchiso` (profiledef.sh → the archiso
+#    baseline) which produces the same bootmenu + amnesic/Ghost live option.

@@ -1,0 +1,16 @@
+# Build-time lock of all upstream components that feed the ISO.
+# Generated/pinned by `components-updater` (CI); debos recipes fail closed if
+# a locked component hash is missing unless `-t unverified:true` is passed.
+#
+# Schema:
+#   id: unique name (matches docs/COMPONENT-SOURCES.md layer tags)
+#   source: VCS URL or container image reference
+#   rev: git ref / digest
+#   sha256: content hash of the acquired artifact
+#
+# Placeholder — populate at first resolver run (CI job `resolve-components`).
+# Example:
+# - id: linux-hardened
+#   source: https://gitlab.archlinux.org/archlinux/packaging/packages/linux
+#   rev: v6.12.x-arch1
+#   sha256: <…>

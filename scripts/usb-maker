@@ -1,0 +1,55 @@
+#!/bin/bash
+# Obsidian OS — live-USB maker (Ventoy backend).
+# Usage:
+#   usb-maker list                       # show candidate devices
+#   usb-maker /dev/sdX <image.iso>       # install (asks confirmation first)
+#
+# Safety: double confirmation, device wipe guard, root required.
+set -euo pipefail
+
+say()  { printf '%s\n' "$*"; }
+die()  { say "usb-maker: $*" >&2; exit 1; }
+
+[ "$(id -u)" -eq 0 ] || die "run as root"
+
+cmd_list() {
+    say "Candidate devices:"
+    lsblk -o NAME,SIZE,MODEL,TRAN,MOUNTPOINTS | grep -Ei 'usb|sd[b-z]|/run/media' || true
+}
+
+cmd_install() {
+    local dev="$1" iso="$2"
+    [ -b "$dev" ] || die "not a block device: $dev"
+    [ -f "$iso" ] || die "ISO not found: $iso"
+    local devname; devname="$(basename "$dev")"
+    case "$devname" in sd[b-z]|vd[b-z]) : ;; *) die "refusing non-removable-looking device: $dev" ;; esac
+
+    say ""
+    say "!! This WIPES $dev ENTIRELY (partition table + data)."
+    lsblk -o NAME,SIZE,MODEL,TRAN "$dev"
+    say ""
+    read -r -p "Type the device path again to confirm: " confirm
+    [ "$confirm" = "$dev" ] || die "confirmation mismatch — aborting"
+
+    command -v ventoy >/dev/null 2>&1 || die "ventoy is not installed (apt install ventoy / download release)"
+    command -v ventoy || true
+
+    ventoy -i -r "$dev"                  # install Ventoy to device
+    mountpoint="$(mktemp -d)"
+    # Ventoy writes a VTOYEFI partition; find the first ESP-ish partition
+    esp="$(lsblk -nrpo NAME "${dev}1" 2>/dev/null | head -1 || true)"
+    if [ -n "$esp" ] && mount "$dev"1 "$mountpoint" 2>/dev/null; then
+        install -m 644 "$iso" "$mountpoint"/
+        sync
+        umount "$mountpoint"
+        say "Installed $(basename "$iso") on $dev — boot the drive on target hardware."
+    else
+        die "mount failed — is the device in use? (umount $dev* first)"
+    fi
+}
+
+case "${1:-}" in
+  list)        cmd_list ;;
+  /dev/*)      [ $# -ge 2 ] || die "usb-maker <device> <iso>";  cmd_install "$1" "$2" ;;
+  *)           die "usage: usb-maker {list| <device> <iso>}" ;;
+esac

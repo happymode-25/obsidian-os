@@ -1,0 +1,34 @@
+# Obsidian OS — AppArmor profile: ObsidianWM session (Hardened tier enforces)
+# Place in /etc/apparmor.d/obsidianwm and run aa-enforce obsidianwm.
+#include <tunables/global>
+
+profile obsidianwm /usr/bin/obsidianwm {
+  #include <abstractions/base>
+  #include <abstractions/wayland>
+  #include <abstractions/fonts>
+  #include <abstractions/dbus>
+
+  capability sys_tty_config,
+  capability setuid,
+  capability setgid,
+  capability net_bind_service,
+
+  # compositor: render nodes + input
+  /dev/dri/* rw,
+  /dev/input/* r,
+  /proc/@{pid}/comm r,
+  /sys/class/drm/*/status r,
+  /sys/class/drm/card*/device/vendor r,
+  /tmp/obsidian-* rw,
+  owner /home/*/.config/obsidianwm/ rw,
+  owner /home/*/.config/obsidianwm/** rw,
+  owner /home/*/.local/share/obsidianwm/ rw,
+  owner /home/*/.local/share/obsidianwm/** rw,
+  /usr/share/obsidian/theme/** r,
+  /usr/share/obsidian/panel/** r,
+
+  # no direct network from the compositor
+  deny network tcp,
+  deny network udp,
+  deny network raw,
+}
