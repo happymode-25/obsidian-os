@@ -18,7 +18,8 @@
 # The markers themselves live in tests/boot-markers.conf, shared with
 # tests/boottest-win.ps1. See that file for why they are not inline.
 #
-# Usage: tests/boottest.sh <image.iso> [--timeout N] [--flavor F] [--keep-log]
+# Usage: tests/boottest.sh <image.iso> [--timeout N] [--flavor F] [--accel A] [--keep-log]
+#   --accel  auto (default) | kvm | tcg
 # Exit:  0 = all required checks passed, 1 = failure (log tail printed),
 #        2 = bad usage.
 set -uo pipefail
@@ -27,6 +28,7 @@ ISO=""
 TIMEOUT=420
 FLAVOR=""
 KEEP_LOG=0
+ACCEL=auto
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -34,18 +36,24 @@ while [ $# -gt 0 ]; do
     --timeout=*) TIMEOUT="${1#*=}"; shift ;;
     --flavor)   FLAVOR="$2"; shift 2 ;;
     --flavor=*) FLAVOR="${1#*=}"; shift ;;
+    --accel)    ACCEL="$2"; shift 2 ;;
+    --accel=*)  ACCEL="${1#*=}"; shift ;;
     --keep-log) KEEP_LOG=1; shift ;;
-    -h|--help)  sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)  sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*)         echo "boottest: unknown option $1" >&2; exit 2 ;;
     *)          if [ -z "$ISO" ]; then ISO="$1"; shift; else
                   echo "boottest: unexpected argument $1" >&2; exit 2; fi ;;
   esac
 done
 
-[ -n "$ISO" ] || { echo "usage: $0 <image.iso> [--timeout N] [--flavor F]" >&2; exit 2; }
+[ -n "$ISO" ] || { echo "usage: $0 <image.iso> [--timeout N] [--flavor F] [--accel A] [--keep-log]" >&2; exit 2; }
 [ -f "$ISO" ] || { echo "boottest: ISO not found: $ISO" >&2; exit 1; }
 command -v qemu-system-x86_64 >/dev/null 2>&1 || {
   echo "boottest: qemu-system-x86_64 not on PATH" >&2; exit 1; }
+case "$ACCEL" in
+  auto|kvm|tcg) ;;
+  *) echo "boottest: --accel must be auto, kvm or tcg (got '$ACCEL')" >&2; exit 2 ;;
+esac
 
 LOG="$(mktemp "${TMPDIR:-/tmp}/obsidian-boot-XXXXXX.log")"
 QPID=""
@@ -90,18 +98,55 @@ if [ "${#REQUIRED[@]}" -eq 0 ]; then
 fi
 
 # --------------------------------------------------------------------------- #
+# accelerator
+# --------------------------------------------------------------------------- #
+# KVM is roughly an order of magnitude faster than TCG, and that is the
+# difference between a boot gate you can iterate against and one that times out
+# on a loaded machine. TCG is the always-correct fallback.
+#
+# Do not infer KVM from `[ -e /dev/kvm ]`: the device node can exist while
+# ownership or group membership denies access, and inside a container it can
+# exist without a hypervisor behind it. Ask QEMU instead - start a real `pc`
+# machine with no boot media and no CPU execution, and see whether it survives.
+# If the accelerator cannot initialise, QEMU aborts immediately. A probe
+# failure must fall back to TCG, never abort the gate.
+probe_accel() {
+  local name="$1" pid
+  qemu-system-x86_64 -accel "$name" -machine pc \
+    -display none -nodefaults -S >/dev/null 2>&1 &
+  pid=$!
+  sleep 5
+  if kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+    return 0
+  fi
+  wait "$pid" 2>/dev/null
+  return 1
+}
+
+ACCEL_USE="$ACCEL"
+if [ "$ACCEL" = auto ]; then
+  if probe_accel kvm; then
+    ACCEL_USE=kvm
+  else
+    ACCEL_USE=tcg
+    echo "  accel kvm : unavailable; falling back to tcg (the boot will be slow)"
+  fi
+fi
+echo "  accelerator: $ACCEL_USE"
+
+# --------------------------------------------------------------------------- #
 # boot
 # --------------------------------------------------------------------------- #
 echo "boottest: $ISO"
 echo "  timeout=${TIMEOUT}s  required=${#REQUIRED[@]}  forbidden=${#FORBIDDEN[@]}"
 if [ -n "$FLAVOR" ]; then echo "  expecting flavor: $FLAVOR"; fi
 
-# -accel tcg: the reference host has VT-x disabled in firmware, so KVM/WHPX
-# are unavailable. TCG is slow but deterministic, which is what a gate wants.
 qemu-system-x86_64 \
   -m 2048 -smp 2 \
   -boot d -cdrom "$ISO" \
-  -display none -accel tcg \
+  -display none -accel "$ACCEL_USE" \
   -serial "file:$LOG" \
   -no-reboot \
   &

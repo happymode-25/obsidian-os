@@ -513,10 +513,14 @@ rm -f "$CHROOT/var/lib/dbus/machine-id"
 # --------------------------------------------------------------------------- #
 log "creating squashfs (jobs=$BUILD_JOBS, comp=zstd)"
 mkdir -p "$STAGE/live"
-# zstd, not xz: xz costs ~4x the CPU for ~5% size. The reference build host for
-# this project is emulated (QEMU/TCG, no VT-x), where CPU is the binding
-# constraint, so compression ratio is the wrong trade. Debian kernels carry
-# CONFIG_SQUASHFS_ZSTD, so the bootloader can read it.
+# zstd, not xz: xz costs roughly 4x the CPU for a few percent of size. This is
+# the heaviest CPU step in the build, and the host is a shared laptop also being
+# used interactively, so wall-clock matters more than the last few percent. Debian
+# kernels carry CONFIG_SQUASHFS_ZSTD, so the bootloader can read it.
+# (An earlier version of this comment justified the choice by claiming the host
+# is emulated with no VT-x. That was never verified, and the boot test it referred
+# to turned out to have hardware acceleration available - see
+# tests/boottest-win.ps1, which now probes for it.)
 mksquashfs "$CHROOT" "$STAGE/live/filesystem.squashfs" \
   -comp zstd -Xcompression-level 15 -b 1M -noappend -no-progress \
   -processors "$BUILD_JOBS" \

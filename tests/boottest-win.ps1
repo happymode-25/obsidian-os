@@ -31,6 +31,12 @@
 .PARAMETER Qemu
     Path to qemu-system-x86_64.exe. Defaults to the standard install location.
 
+.PARAMETER Accel
+    'auto' (default) probes WHpx and falls back to TCG. Pass 'whpx' or 'tcg' to
+    skip the probe. TCG emulates the CPU, so a cold boot of a freshly built live
+    image under TCG can take many minutes; WHpx is hardware-backed and takes
+    seconds.
+
 .EXAMPLE
     .\tests\boottest-win.ps1 -Iso out\obsidian-daily-trixie-amd64.iso -Flavor daily
 
@@ -47,7 +53,15 @@ param(
 
     [string]$Flavor = '',
 
-    [string]$Qemu = "$env:ProgramFiles\qemu\qemu-system-x86_64.exe"
+    [string]$Qemu = "$env:ProgramFiles\qemu\qemu-system-x86_64.exe",
+
+    # 'auto' probes WHpx and falls back to TCG. TCG always works but emulates
+    # the CPU, so a cold boot of a freshly built live image can take many
+    # minutes and will time out on a busy host. WHpx is hardware-backed and
+    # turns the same boot into seconds. An explicit 'whpx' or 'tcg' skips the
+    # probe; 'tcg' is worth pinning in CI when you want determinism over speed.
+    [ValidateSet('auto', 'whpx', 'tcg')]
+    [string]$Accel = 'auto'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -102,6 +116,72 @@ if ($required.Count -eq 0) {
     exit 2
 }
 
+# --- accelerator ------------------------------------------------------------- #
+# TCG is the safe default but it emulates the CPU. WHpx runs on the Windows
+# hypervisor and is roughly an order of magnitude faster, which is the
+# difference between a boot gate you can actually iterate against and one that
+# times out on a loaded machine.
+#
+# Two things this must not do:
+#   - trust a capability list. `qemu -accel help` prints what the *binary* was
+#     built with, which says nothing about whether the host has the feature
+#     enabled. (It is also the source of the spelling: the accelerator is
+#     'whpx', not 'wphx'. A typo there fails closed into TCG, which looks like a
+#     working test that is merely slow.)
+#   - trust a machine-less probe. `-machine none` is rejected by the x86 machine
+#     class in QEMU 11.1 before the accelerator is ever consulted, so it cannot
+#     distinguish "accelerator unavailable" from "machine type refused".
+# So: start a real `pc` machine with no boot media and no CPU execution, and see
+# whether QEMU survives. If the accelerator cannot initialise, QEMU aborts
+# immediately; if it can, the process sits there until we kill it.
+function Test-Accel {
+    param([string]$Name, [int]$ProbeSeconds = 8)
+
+    $probeLog = Join-Path ([System.IO.Path]::GetTempPath()) `
+               ("obsidian-accel-probe-{0}.txt" -f $Name)
+    if (Test-Path -LiteralPath $probeLog) { Remove-Item -LiteralPath $probeLog -Force }
+
+    try {
+        $p = Start-Process -FilePath $Qemu -PassThru -NoNewWindow `
+             -ArgumentList @('-accel', $Name, '-machine', 'pc', '-display', 'none',
+                             '-nodefaults', '-S') `
+             -RedirectStandardError $probeLog -RedirectStandardOutput "$probeLog.out" `
+             -ErrorAction Stop
+    } catch {
+        Write-Info "accel $Name : could not start probe ($($_.Exception.Message))"
+        return $false
+    }
+
+    # If it is still alive after the probe window, the accelerator initialised.
+    $survived = -not $p.WaitForExit($ProbeSeconds * 1000)
+    if (-not $survived) { $code = $p.ExitCode } else { $code = $null }
+    if ($survived) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+
+    $detail = ''
+    if (Test-Path -LiteralPath $probeLog) {
+        $t = Get-Content -LiteralPath $probeLog -Raw -ErrorAction SilentlyContinue
+        if ($t) { $detail = ($t.Trim() -split "`r?`n" | Select-Object -First 1) }
+    }
+
+    if ($survived) {
+        Write-Info "accel $Name : available"
+        return $true
+    }
+    Write-Info "accel $Name : unavailable (qemu exited $code) $detail"
+    return $false
+}
+
+$useAccel = $Accel
+if ($Accel -eq 'auto') {
+    # Fail closed: never auto-select something unproven, and never let a probe
+    # failure abort the run. TCG is slow but always correct.
+    $useAccel = if (Test-Accel 'whpx') { 'whpx' } else { 'tcg' }
+    if ($useAccel -eq 'tcg') {
+        Write-Info 'falling back to TCG: the boot will be slow, expect minutes not seconds'
+    }
+}
+Write-Info "accelerator: $useAccel"
+
 # --- boot ------------------------------------------------------------------- #
 
 $log = Join-Path ([System.IO.Path]::GetTempPath()) `
@@ -120,10 +200,8 @@ $qemuArgs = @(
     '-boot', 'd'
     '-cdrom', $Iso
     '-display', 'none'
-    # -accel tcg: the reference host exposes no VT-x to the guest, so KVM and
-    # WHPX are unavailable. TCG is slow but deterministic, which is what a gate
-    # wants. Drop this on a host with acceleration to iterate faster.
-    '-accel', 'tcg'
+    # -accel is probed above and defaults to WHPX when the host supports it.
+    '-accel', $useAccel
     "-serial", "file:$log"
     '-no-reboot'
 )

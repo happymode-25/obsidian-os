@@ -397,12 +397,59 @@ guarantees a *successful* build cannot ship it.
 
 ---
 
-## Status after this pass
+## 12. A documented "environment limitation" that was never checked
+
+`tests/boottest.sh`, `docs/BUILD.md` and `build/build-iso.sh` all carried the
+same claim, in the same words:
+
+> the reference host has VT-x disabled in firmware, so KVM/WHPX are unavailable
+
+This was written from the VirtualMachinePlatform finding and never verified
+against QEMU. It is wrong, and wrong in a way that costs real time.
+
+`qemu-system-x86_64 -accel help` on this host lists `whpx`, and a probe with a
+real `pc` machine confirms it initialises. WHpx needs the *Hypervisor Platform*
+feature, which is a different feature from the `VirtualMachinePlatform` that
+was found missing — so the original inference was a category error, not a
+measurement. (VBS/HVCI also make `systeminfo` and the CIM virtualization flags
+unreliable on this host, so they cannot settle the question either.)
+
+Why it mattered: the fallback is TCG, which emulates the CPU. A TCG cold boot
+of a freshly built live image is slow enough that the runner's 420 s default
+timeout becomes a plausible cause of failure — a timeout that looks exactly
+like a broken image. The claim was quietly costing the gate its credibility.
+
+Both runners now probe instead of assuming, and the probe is a real `pc`
+machine rather than anything cheaper, for two reasons found the hard way:
+
+- `qemu -accel help` is a capability list for the *binary*, not a statement
+  about the host. It is where the spelling came from: the accelerator is
+  `whpx`, not `wphx`. The typo fails closed into TCG, so it presents as a
+  slow-but-passing gate rather than an error.
+- `-machine none`, the cheap way to probe, is rejected by the x86 machine class
+  in QEMU 11.1 *before* the accelerator is consulted. It cannot distinguish
+  "accelerator unavailable" from "machine type refused", so it reports every
+  accelerator as working. Both probes were replaced after producing exactly
+  that wrong answer.
+
+The general lesson is the one this report keeps rediscovering: an environment
+limitation written down as fact will outlive the reason for it, and nobody
+re-tests a limitation that is written as a limitation.
+
+Driven with a stub `qemu` across all branches, `boottest.sh` was confirmed to
+still pass a complete guest, still refuse a silent one, still refuse a guest
+carrying a stock-Debian fingerprint, still refuse a wrong-flavor image, fall
+back to TCG when the probe reports the accelerator unavailable, skip the probe
+when `--accel` is given explicitly, and reject bad usage with exit 2. The pass
+path matters as much as the fail path: a change to a gate that can only be
+tested failing has not been tested.
+
+---
 
 | Area | Before | After |
 |---|---|---|
 | ISO pipeline | unbuildable | runs; configures packages — **blocked on host memory, no ISO produced yet** |
-| Boot gate | could not fail | strict, self-verified, markers shared with the Windows runner — **never executed against an image** |
+| Boot gate | could not fail | strict, self-verified, markers shared with the Windows runner, acceleration probed not assumed — **never executed against a real image** |
 | Hardening overlay | 3 real rule-order bugs | fixed + documented |
 | Ghost overlay | README only | 6 real files |
 | Ghost threat model | implied total wipe | stated, with limits |

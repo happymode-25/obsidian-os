@@ -97,8 +97,10 @@ bash tests/boottest.sh build/out/obsidian-daily-trixie-amd64.iso \
   --flavor daily --timeout 600
 ```
 
-The test boots the ISO under QEMU with `-accel tcg`, captures the serial console,
-and requires `OBSIDIAN-OS-READY`. That string is emitted only by
+The test boots the ISO under QEMU, captures the serial console, and requires
+`OBSIDIAN-OS-READY`. Acceleration is probed, not assumed: `boottest.sh` tries KVM
+and falls back to TCG, `boottest-win.ps1` tries WHpx and falls back to TCG. Pass
+`--accel` / `-Accel` to pin one. That string is emitted only by
 `overlays/common/usr/local/sbin/obsidian-boot-report`, which runs as
 `obsidian-boot-report.service` and attests that the hardening actually took
 effect:
@@ -244,12 +246,33 @@ Two things worth knowing:
   small *working set*. That is WSL1's own reservation for the page cache and
   the build tree, not the build's live footprint. Reading it as live usage is
   what makes it look unrecoverable.
+- **`used` is Windows, not the build.** WSL1 has no VM: it translates syscalls,
+  and `free` reads host-wide memory counters. On the failing host, `free`
+  reported 9.3 GB used while the sum of RSS across every process inside WSL was
+  a few MB. So the pressure is the Windows desktop's own, and nothing the build
+  does can reclaim it — nor should the build try. Confirm with:
+
+  ```bash
+  ps -eo rss --no-headers | awk '{s+=$1} END {printf "%.1f GB\n", s/1048576}'
+  ```
+
+  If that is small while `used` is large, the only real remedy is to close
+  Windows applications. Do not kill the user's processes to make room.
 
 If it still fails with several GB free, the next thing to check is whether the
 build is being run on `/mnt/c` — see the note above.
 
-**QEMU acceleration.** On a host without VT-x exposed to the guest, use
-`-accel tcg`. The boot test already does.
+**QEMU acceleration.** Do not hardcode `-accel`. Both boot tests probe for a
+hardware accelerator and fall back to TCG, because TCG emulates the CPU and a
+cold boot of a freshly built live image under TCG can take many minutes — long
+enough to blow the timeout on an otherwise healthy build, which is a failure
+mode that looks like a broken image. Neither test infers availability from a
+device node or from `qemu -accel help`: the first can exist without permission
+or a hypervisor behind it, and the second lists what the *binary* was built
+with, not what the host supports. Both start a real `pc` machine with no boot
+media and check whether QEMU survives. Note the spelling is `whpx`, not
+`wphx`; the typo fails closed into TCG, which presents as a passing-but-slow
+gate rather than an error.
 
 ## 7. Reproducibility
 
