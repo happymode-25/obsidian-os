@@ -596,9 +596,15 @@ MKR_LOG="$WORK/grub-mkrescue.log"
 # en_US.UTF-8, and a chroot/en_US.* dir may not exist at all). Without the
 # flag GRUB embeds whatever locales exist and uses English otherwise; the
 # image is unchanged.
+#
+# Volume id uses the short form `-V OBSIDIAN`, NOT `--volid=OBSIDIAN`:
+# grub-mkrescue forwards unrecognized options unchanged to xorriso, and
+# xorriso 1.5.6 (Ubuntu 24.04) rejects the long form in -as mkisofs mode
+# (`Unrecognized option '--volid=OBSIDIAN'`). `-V` is accepted by every
+# mkisofs-compatible version.
 if ! grub-mkrescue \
       --output="$OUT_DIR/$ISO_NAME" \
-      --volid="OBSIDIAN" \
+      -V OBSIDIAN \
       "$STAGE" > "$MKR_LOG" 2>&1; then
   sed 's/^/    /' "$MKR_LOG" >&2
   die "grub-mkrescue failed (full log: $MKR_LOG)"
