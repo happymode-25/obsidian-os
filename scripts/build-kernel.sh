@@ -53,11 +53,11 @@ EOF
   mkdir -p "$BUILD_DIR/src"
   (
     cd "$BUILD_DIR/src" \
-    && apt-get --allow-unauthenticated \
+    && sudo apt-get --allow-unauthenticated \
                -o Dir::Etc::sourcelist="$DEBSRC" \
                -o Dir::Etc::sourceparts=- \
                -o APT::Get::List-Cleanup=0 update -qq \
-    && apt-get --allow-unauthenticated \
+    && sudo apt-get --allow-unauthenticated \
                -o Dir::Etc::sourcelist="$DEBSRC" \
                -o Dir::Etc::sourceparts=- \
                -o APT::Get::List-Cleanup=0 source linux
