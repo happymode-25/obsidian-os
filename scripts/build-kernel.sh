@@ -40,6 +40,12 @@
 #   KERNEL_TREE     path to keep the (merged) source tree between runs, so a
 #                   CHECK_ONLY run can prime the tree and the real build reuses
 #                   it without re-downloading or re-merging.
+#   KERNEL_BUILD    path to a PERSISTENT build tree (resumable). The compile
+#                   runs in place here and the tree survives failures and host
+#                   restarts; a later run re-verifies the existing .config,
+#                   skips the merge cycle, and `make` recompiles only what is
+#                   missing. KERNEL_TREE (or KERNEL_SRC) seeds a fresh
+#                   KERNEL_BUILD the first time.
 #
 # Runtime: heavy (compiles the kernel). CI runs on ubuntu-24.04; the local
 # source of truth for the ISO is the documented WSL1 host.
@@ -54,117 +60,24 @@ DEBSRC_MIRROR="${DEBSRC_MIRROR:-http://deb.debian.org/debian}"
 JOBS="${KBUILD_JOBS:-$(nproc)}"
 CHECK_ONLY="${CHECK_ONLY:-0}"
 KERNEL_TREE="${KERNEL_TREE:-}"
+KERNEL_BUILD="${KERNEL_BUILD:-}"
 SRCDIR="${KERNEL_SRC:-}"
+KEEP_BUILD="${KERNEL_BUILD:+1}"   # persistent mode: keep partial trees for resume
 
 # root-tolerant sudo (CI runs as the ubuntu user; the local build runs as root)
 if [ "$(id -u)" -eq 0 ]; then SUDO=(); else SUDO=(sudo); fi
 
 say() { printf '%s\n' "$*"; }
-die() { say "build-kernel: $*" >&2; exit 1; }
+# Persistent mode (KERNEL_BUILD) keeps the partially built tree on failure so a
+# later run resumes; ephemeral mode discards it exactly as before.
+die() {
+  say "build-kernel: $*" >&2
+  [ -z "$KEEP_BUILD" ] && rm -rf "${BUILD_DIR:-}"
+  exit 1
+}
 
-[ -f "$FRAG" ] || die "fragment not found: $FRAG (set FRAG)"
-[ -f "$BASE_CONFIG" ] || die "base config not found: $BASE_CONFIG (must exist in the repo: build/kernel/base-config-amd64.config)"
-mkdir -p "$OUTDIR"
-
-# ---- 0b. build host deps (idempotent) --------------------------------------
-# The host fetches the Debian source and compiles it; Ubuntu and Debian hosts
-# need the toolchain. WSL1's Ubuntu 24.04 image is the documented build host.
-if [ -f /etc/os-release ] && grep -qiE 'debian|ubuntu' /etc/os-release; then
-  "${SUDO[@]}" apt-get update -qq
-  "${SUDO[@]}" apt-get install -y -qq \
-    build-essential dpkg-dev fakeroot rsync flex bison bc \
-    libssl-dev libelf-dev dwarves openssl
-fi
-
-# ---- 1. acquire source -----------------------------------------------------
-BUILD_DIR="$(mktemp -d /tmp/obs-kernel-XXXXXX)"
-if [ -n "$KERNEL_TREE" ] && [ -f "$KERNEL_TREE/Makefile" ]; then
-  say "reusing kernel tree at $KERNEL_TREE"
-  cp -a "$KERNEL_TREE" "$BUILD_DIR/linux" || { rm -rf "$BUILD_DIR"; die "cp -a from KERNEL_TREE failed"; }
-elif [ -n "$SRCDIR" ]; then
-  say "using provided source: $SRCDIR"
-  mkdir -p "$BUILD_DIR/linux"
-  rsync -a --exclude='.git' "$SRCDIR"/ "$BUILD_DIR/linux/" \
-    || { rm -rf "$BUILD_DIR"; die "rsync from KERNEL_SRC failed"; }
-else
-  # GitHub runners are Ubuntu and have no Debian deb-src entries, so point apt
-  # at an explicit Debian trixie deb-src list. --allow-unauthenticated keeps
-  # this portable; a real Debian host may drop it.
-  DEBSRC="$(mktemp /tmp/obs-debsrc-XXXXXX.list)"
-  printf 'deb-src %s trixie main\n' "$DEBSRC_MIRROR" > "$DEBSRC"
-  say "fetching Debian linux source (trixie, $DEBSRC_MIRROR)…"
-  ( cd "$BUILD_DIR" \
-    && "${SUDO[@]}" apt-get -o Acquire::AllowInsecureRepositories=true \
-         --allow-unauthenticated \
-         -o Dir::Etc::sourcelist="$DEBSRC" \
-         -o Dir::Etc::sourceparts=- \
-         -o APT::Get::List-Cleanup=0 update -qq \
-    && "${SUDO[@]}" apt-get -o Acquire::AllowInsecureRepositories=true \
-         --allow-unauthenticated \
-         -o Dir::Etc::sourcelist="$DEBSRC" \
-         -o Dir::Etc::sourceparts=- \
-         -o APT::Get::List-Cleanup=0 source linux ) \
-    || { rm -rf "$BUILD_DIR"; die "apt-get source linux failed (see output above; set DEBSRC_MIRROR to a reachable mirror)"; }
-  d="$(find "$BUILD_DIR" -maxdepth 1 -type d -name 'linux-*' | head -1)"
-  [ -n "$d" ] || { rm -rf "$BUILD_DIR"; die "apt-get source did not unpack a linux-* tree"; }
-  mv "$d" "$BUILD_DIR/linux"
-fi
-cd "$BUILD_DIR/linux"
-
-# ---- 2. base config = shipped Debian trixie amd64 config + Obsidian fragment ---
-BASE_CFG="$BASE_CONFIG"
-source_ver="$(sed -nE 's/^VERSION\s*=\s*//p; s/^PATCHLEVEL\s*=\s*//p; s/^SUBLEVEL\s*=\s*//p' Makefile | tr '\n' '.' | sed 's/\.$//')"
-base_ver="$(sed -nE 's/^# Linux\/x86 ([0-9]+\.[0-9]+\.?[0-9]*).*/\1/p' "$BASE_CFG" | head -1)"
-[ -n "$base_ver" ] || { rm -rf "$BUILD_DIR"; die "cannot read kernel version from base config header: $BASE_CFG"; }
-case "$source_ver" in
-  "$base_ver"|"$base_ver."*) ;; # exact same kernel (or source is same-version tree)
-  *) rm -rf "$BUILD_DIR"
-     die "base config version ($base_ver) does not match fetched source ($source_ver); refresh build/kernel/base-config-amd64.config from a stock $source_ver ISO";;
-esac
-say "base config: $BASE_CFG (kernel $base_ver, matches source $source_ver)"
-say "fragment:    $FRAG"
-
-# merge_config writes the merged result to ./.config; it handles full .configs
-# (our shipped base) plus fragment lines. -m = merge only (no internal make, no
-# per-symbol check loop): we resolve with our own olddefconfig below, and
-# verify_hardening hard-fails on any required symbol that did not land.
-scripts/kconfig/merge_config.sh -m -O . "$BASE_CFG" "$FRAG" >/dev/null 2>&1 \
-  || { rm -rf "$BUILD_DIR"; die "merge_config failed (base=$BASE_CFG frag=$FRAG)"; }
-
-# Resolve the fragment's symbol selections against the tree.
-make olddefconfig >/dev/null 2>&1 || { rm -rf "$BUILD_DIR"; die "olddefconfig failed"; }
-
-# ---- 2b. sanitise Debian-specific key references -----------------------------
-# After the debian/ dir is moved away, configs that reference cert paths under
-# it would break the signing-key step. Clear them so signing keys are
-# auto-generated; the OBSIDIAN image ships kernel+modules from the same build,
-# so the generated key is consistent inside the ISO.
-#
-# Only clear path-like values that reference files OUTSIDE the kernel tree (an
-# absolute path such as /usr/share/keyrings/..., or a debian/-relative path).
-# The plain kernel default `certs/signing_key.pem` must NOT be cleared: kbuild
-# auto-generates that file inside the tree during the build and MODULE_SIG=y
-# embeds the matching cert into the image — that IS the module-signing story.
-for key in CONFIG_SYSTEM_TRUSTED_KEYS CONFIG_SYSTEM_REVOCATION_KEYS CONFIG_MODULE_SIG_KEY; do
-  val="$(grep -E "^${key}=|^# ${key} is not set" .config | head -1 || true)"
-  case "$val" in
-    *'="/'*|*debian/*) # absolute path, or a path under debian/ (outside the tree once moved)
-      sed -i "s|^${key}=.*|${key}=\"\"|" .config
-      make olddefconfig >/dev/null 2>&1 || true
-      say "  cleared ${key} (referenced ${val#*=}; cert not present after debian/ move)"
-      ;;
-    *) : ;;
-  esac
-done
-# BTF (.BTF, pahole) requires dwarves; if pahole is missing, disable DEBUG_INFO_BTF
-# rather than failing the whole build on a tooling gap.
-if ! command -v pahole >/dev/null 2>&1 && grep -q '^CONFIG_DEBUG_INFO_BTF=y' .config; then
-  sed -i 's/^CONFIG_DEBUG_INFO_BTF=y/# CONFIG_DEBUG_INFO_BTF is not set/' .config
-  make olddefconfig >/dev/null 2>&1 || true
-  say "  disabled CONFIG_DEBUG_INFO_BTF (pahole not installed)"
-fi
-
-# ---- 2c. VERIFY the hardening actually landed -------------------------------
+# Every option in the hardening fragment is asserted against .config here; a
+# fragment that silently failed to apply is a build failure, not a warning.
 verify_hardening() {
   local missing=()
   # Required =y options (each must appear as a plain 'CONFIG_X=y' line).
@@ -198,10 +111,154 @@ verify_hardening() {
   fi
   return 0
 }
+
+[ -f "$FRAG" ] || die "fragment not found: $FRAG (set FRAG)"
+[ -f "$BASE_CONFIG" ] || die "base config not found: $BASE_CONFIG (must exist in the repo: build/kernel/base-config-amd64.config)"
+mkdir -p "$OUTDIR"
+
+# ---- 0b. build host deps (idempotent) --------------------------------------
+# The host fetches the Debian source and compiles it; Ubuntu and Debian hosts
+# need the toolchain. WSL1's Ubuntu 24.04 image is the documented build host.
+if [ -f /etc/os-release ] && grep -qiE 'debian|ubuntu' /etc/os-release; then
+  "${SUDO[@]}" apt-get update -qq
+  "${SUDO[@]}" apt-get install -y -qq \
+    build-essential dpkg-dev fakeroot rsync flex bison bc \
+    libssl-dev libelf-dev dwarves openssl
+fi
+
+# ---- 1. acquire source -----------------------------------------------------
+# Persistent (resumable) mode: KERNEL_BUILD names a tree that survives failures
+# and host restarts. A re-run re-enters it in place, re-verifies the existing
+# .config, skips the merge cycle (so config-dependent headers keep their mtimes
+# and `make` recompiles only what is missing). Ephemeral mode (default) is the
+# old behaviour: fresh mktemp dir each run.
+if [ -n "$KERNEL_BUILD" ] && [ -f "$KERNEL_BUILD/linux/Makefile" ]; then
+  BUILD_DIR="$KERNEL_BUILD"
+  say "resuming persistent build tree at $BUILD_DIR/linux"
+  RESUMING=1
+else
+  if [ -n "$KERNEL_BUILD" ]; then
+    BUILD_DIR="$KERNEL_BUILD"; mkdir -p "$BUILD_DIR"
+    say "seeding persistent build tree at $BUILD_DIR/linux"
+  else
+    BUILD_DIR="$(mktemp -d /tmp/obs-kernel-XXXXXX)"
+  fi
+  RESUMING=0
+fi
+
+if [ "$RESUMING" = "0" ]; then
+  if [ -n "$KERNEL_TREE" ] && [ -f "$KERNEL_TREE/Makefile" ]; then
+    say "reusing kernel tree at $KERNEL_TREE"
+    if [ -n "$KERNEL_BUILD" ]; then
+      # seed atomically into the permanent location
+      rm -rf "$BUILD_DIR/linux.tmp"
+      cp -a "$KERNEL_TREE" "$BUILD_DIR/linux.tmp" || die "cp -a from KERNEL_TREE failed"
+      mv "$BUILD_DIR/linux.tmp" "$BUILD_DIR/linux"
+    else
+      cp -a "$KERNEL_TREE" "$BUILD_DIR/linux" || die "cp -a from KERNEL_TREE failed"
+    fi
+  elif [ -n "$SRCDIR" ]; then
+    say "using provided source: $SRCDIR"
+    mkdir -p "$BUILD_DIR/linux"
+    rsync -a --exclude='.git' "$SRCDIR"/ "$BUILD_DIR/linux/" \
+      || die "rsync from KERNEL_SRC failed"
+  else
+    # GitHub runners are Ubuntu and have no Debian deb-src entries, so point apt
+    # at an explicit Debian trixie deb-src list. --allow-unauthenticated keeps
+    # this portable; a real Debian host may drop it.
+    DEBSRC="$(mktemp /tmp/obs-debsrc-XXXXXX.list)"
+    printf 'deb-src %s trixie main\n' "$DEBSRC_MIRROR" > "$DEBSRC"
+    say "fetching Debian linux source (trixie, $DEBSRC_MIRROR)…"
+    ( cd "$BUILD_DIR" \
+      && "${SUDO[@]}" apt-get -o Acquire::AllowInsecureRepositories=true \
+           --allow-unauthenticated \
+           -o Dir::Etc::sourcelist="$DEBSRC" \
+           -o Dir::Etc::sourceparts=- \
+           -o APT::Get::List-Cleanup=0 update -qq \
+      && "${SUDO[@]}" apt-get -o Acquire::AllowInsecureRepositories=true \
+           --allow-unauthenticated \
+           -o Dir::Etc::sourcelist="$DEBSRC" \
+           -o Dir::Etc::sourceparts=- \
+           -o APT::Get::List-Cleanup=0 source linux ) \
+      || die "apt-get source linux failed (set DEBSRC_MIRROR to a reachable mirror)"
+    d="$(find "$BUILD_DIR" -maxdepth 1 -type d -name 'linux-*' | head -1)"
+    [ -n "$d" ] || die "apt-get source did not unpack a linux-* tree"
+    mv "$d" "$BUILD_DIR/linux"
+  fi
+fi
+cd "$BUILD_DIR/linux"
+
+# ---- 2. base config = shipped Debian trixie amd64 config + Obsidian fragment ---
+BASE_CFG="$BASE_CONFIG"
+source_ver="$(sed -nE 's/^VERSION\s*=\s*//p; s/^PATCHLEVEL\s*=\s*//p; s/^SUBLEVEL\s*=\s*//p' Makefile | tr '\n' '.' | sed 's/\.$//')"
+base_ver="$(sed -nE 's/^# Linux\/x86 ([0-9]+\.[0-9]+\.?[0-9]*).*/\1/p' "$BASE_CFG" | head -1)"
+[ -n "$base_ver" ] || die "cannot read kernel version from base config header: $BASE_CFG"
+case "$source_ver" in
+  "$base_ver"|"$base_ver."*) ;; # exact same kernel (or source is same-version tree)
+  *) die "base config version ($base_ver) does not match fetched source ($source_ver); refresh build/kernel/base-config-amd64.config from a stock $source_ver ISO";;
+esac
+say "base config: $BASE_CFG (kernel $base_ver, matches source $source_ver)"
+say "fragment:    $FRAG"
+
+# Merge cycle: fresh runs merge base+fragment and resolve. RESUMING runs skip
+# the entire cycle when the tree's existing .config already passes
+# verify_hardening — config mutation is what would invalidate compiled objects,
+# so skipping it lets `make` resume with an untouched build.
+MERGE=1
+if [ "$RESUMING" = "1" ] && verify_hardening; then
+  MERGE=0
+  say "resume: existing .config already passes hardening verification — skipping merge cycle"
+fi
+if [ "$MERGE" = "1" ]; then
+  # merge_config writes the merged result to ./.config; it handles full
+  # .configs (our shipped base) plus fragment lines. -m = merge only (no
+  # internal make, no per-symbol check loop): we resolve with our own
+  # olddefconfig below, and verify_hardening hard-fails on any required symbol
+  # that did not land.
+  scripts/kconfig/merge_config.sh -m -O . "$BASE_CFG" "$FRAG" >/dev/null 2>&1 \
+    || die "merge_config failed (base=$BASE_CFG frag=$FRAG)"
+
+  # Resolve the fragment's symbol selections against the tree.
+  make olddefconfig >/dev/null 2>&1 || die "olddefconfig failed"
+fi
+
+# ---- 2b. sanitise Debian-specific key references (fresh runs only) ----------
+# After the debian/ dir is moved away, configs that reference cert paths under
+# it would break the signing-key step. Clear them so signing keys are
+# auto-generated; the OBSIDIAN image ships kernel+modules from the same build,
+# so the generated key is consistent inside the ISO.
+#
+if [ "$MERGE" = "1" ]; then
+# Only clear path-like values that reference files OUTSIDE the kernel tree (an
+# absolute path such as /usr/share/keyrings/..., or a debian/-relative path).
+# The plain kernel default `certs/signing_key.pem` must NOT be cleared: kbuild
+# auto-generates that file inside the tree during the build and MODULE_SIG=y
+# embeds the matching cert into the image — that IS the module-signing story.
+for key in CONFIG_SYSTEM_TRUSTED_KEYS CONFIG_SYSTEM_REVOCATION_KEYS CONFIG_MODULE_SIG_KEY; do
+  val="$(grep -E "^${key}=|^# ${key} is not set" .config | head -1 || true)"
+  case "$val" in
+    *'="/'*|*debian/*) # absolute path, or a path under debian/ (outside the tree once moved)
+      sed -i "s|^${key}=.*|${key}=\"\"|" .config
+      make olddefconfig >/dev/null 2>&1 || true
+      say "  cleared ${key} (referenced ${val#*=}; cert not present after debian/ move)"
+      ;;
+    *) : ;;
+  esac
+done
+# BTF (.BTF, pahole) requires dwarves; if pahole is missing, disable DEBUG_INFO_BTF
+# rather than failing the whole build on a tooling gap.
+if ! command -v pahole >/dev/null 2>&1 && grep -q '^CONFIG_DEBUG_INFO_BTF=y' .config; then
+  sed -i 's/^CONFIG_DEBUG_INFO_BTF=y/# CONFIG_DEBUG_INFO_BTF is not set/' .config
+  make olddefconfig >/dev/null 2>&1 || true
+  say "  disabled CONFIG_DEBUG_INFO_BTF (pahole not installed)"
+fi
+fi   # [ "$MERGE" = "1" ] — resume skips config mutation entirely
+
+# ---- 2c. VERIFY the hardening actually landed -------------------------------
 if verify_hardening; then
   say "hardening options verified in .config"
 else
-  rm -rf "$BUILD_DIR"; exit 1
+  die "hardening options missing from .config (see failures above)"
 fi
 
 say "key config lines:"
@@ -215,7 +272,7 @@ if [ "$CHECK_ONLY" = "1" ]; then
   else
     say "CHECK_ONLY: ok (set KERNEL_TREE to keep the tree; else it is discarded)"
   fi
-  rm -rf "$BUILD_DIR"
+  [ -z "$KEEP_BUILD" ] && rm -rf "$BUILD_DIR"
   exit 0
 fi
 
@@ -224,6 +281,9 @@ fi
 # aside first. Grab the version from its changelog BEFORE the move for a stable
 # package version suffix (reproducible; no date).
 PKGVER="$(dpkg-parsechangelog -S Version 2>/dev/null | head -1 || echo 6.12)"
+# On a resume, the regenerated (mkdebian) debian/changelog already carries the
+# .obsidian suffix — strip it so the suffix below is not doubled.
+PKGVER="${PKGVER%.obsidian}"
 mv debian "$BUILD_DIR/linux-debian" 2>/dev/null || true
 say "building with make -j$JOBS bindeb-pkg (source version $PKGVER)…"
 # mkdebian's generated debian/control declares `debhelper-compat (= 12)` (a
@@ -236,7 +296,7 @@ make -j"$JOBS" bindeb-pkg \
   KDEB_PKGVERSION="${PKGVER}.obsidian" \
   LOCALVERSION=-obsidian-h \
   DPKG_FLAGS=-d \
-  >/dev/null || { rm -rf "$BUILD_DIR"; die "bindeb-pkg failed"; }
+  >/dev/null || die "bindeb-pkg failed"
 
 # ---- 4. collect artifacts ----------------------------------------------------
 # bindeb-pkg drops linux-image-*/linux-headers-*/linux-libc-dev*.deb in ../
@@ -249,9 +309,13 @@ for f in "$BUILD_DIR"/linux-image-*.deb "$BUILD_DIR"/linux-headers-*.deb; do
   out="$OUTDIR/obsidian-$base"
   cp -f "$f" "$out" && found="$found $(basename "$out")"
 done
-[ -n "$found" ] || { rm -rf "$BUILD_DIR"; die "no linux-image-*.deb produced (bindeb-pkg failed?)"; }
+[ -n "$found" ] || die "no linux-image-*.deb produced (bindeb-pkg failed?)"
 
-rm -rf "$BUILD_DIR"
+if [ -n "$KEEP_BUILD" ]; then
+  say "build tree kept at $BUILD_DIR for future resumes (KERNEL_BUILD in effect)"
+else
+  rm -rf "$BUILD_DIR"
+fi
 say "artifacts:"
 ls -lh "$OUTDIR" | sed 's/^/  /'
 exit 0
