@@ -135,6 +135,15 @@ It **fails** if the log contains `Welcome to Debian` or `Debian GNU/Linux` —
 those are the fingerprints of the old `debian-live` substitution, where the
 build "succeeded" by shipping a vanilla image.
 
+On a Windows host with QEMU + WHPX, the equivalent is
+`tests/boottest-win.ps1 -Iso build/out/obsidian-daily-trixie-amd64.iso -Flavor daily`.
+This exact command is what produced the first green run (2026-09-29, commit
+`bdd660a`); the same gate demonstrably fails a stock/un-branded Debian image
+(see `docs/GAP-REPORT.md` §14). Two runtime-only image bugs were found this way:
+the squashfs was excluding `/dev /proc /sys /run /tmp` (boot panic, §14.1) and
+the image still presented as vanilla Debian via `os-release`/`issue` (banner
+fingerprint, §14.2).
+
 There is no soft mode. The previous test had one, and its success patterns
 (`login:`, `Reached target`, `tty[S0-9]`) are all printed by stock Debian, so it
 passed on a broken image. `validate-build.py` rejects the reintroduction of

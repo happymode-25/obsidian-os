@@ -448,8 +448,8 @@ tested failing has not been tested.
 
 | Area | Before | After |
 |---|---|---|
-| ISO pipeline | unbuildable | bootstrap completes + shim proven (§11.6, §13); assembly in flight — **no ISO produced yet** |
-| Boot gate | could not fail | strict, self-verified, markers shared with the Windows runner, acceleration probed not assumed — **never executed against a real image** |
+| ISO pipeline | unbuildable | bootstrap completes + shim proven (§11.6, §13); **daily ISO produced, boots, and passes the strict gate under WHPX QEMU (§14)** |
+| Boot gate | could not fail | strict, self-verified, markers shared with the Windows runner, acceleration probed not assumed — **executed against a real image: daily PASS, both stock-Debian fingerprints demonstrated to fail (§14)** |
 | Hardening overlay | 3 real rule-order bugs | fixed + documented |
 | Ghost overlay | README only | 6 real files |
 | Ghost threat model | implied total wipe | stated, with limits |
@@ -463,10 +463,12 @@ tested failing has not been tested.
 | Profile↔flavor mapping | none, and names disagreed | `flavor:` key + enforced by `validate-build.py` |
 | Build host vs WSL1 | unbuildable, undiagnosed | OFD-lock shim, gated on a capability probe |
 
-**The honest summary: no ISO has ever been produced by this repository.** The
-pipeline is written, syntax-clean and semantically gated, but the boot test and
-the CI matrix remain entirely unexercised. Everything after "the bootstrap
-completes" is unproven.
+**The honest summary (as of §13): no ISO had ever been produced by this
+repository.** The pipeline was written, syntax-clean and semantically gated, but
+the boot test and the CI matrix remained entirely unexercised. Everything after
+"the bootstrap completes" was unproven. **This is no longer true — see §14: the
+first real ISO was assembled, booted, and the daily flavor passed the strict boot
+gate on 2026-09-29.**
 
 ---
 
@@ -522,4 +524,97 @@ post-bootstrap chroot steps have been probed against the real chroot (`chpasswd`
 needed there — and `update-initramfs`, which produced a 41 MB live-boot initrd,
 falling back to gzip because zstd is not in the image package set), and the ISO
 assembly + boot test remain in flight.
+
+---
+
+## 14. The first real boots: two blockers, both image defects, both fixed
+
+Once the ISO assembly completed, the actual boot under WHPX QEMU found two bugs
+that every static gate had missed, because both are runtime-only. The gate did
+exactly what it was rebuilt to do: it failed loudly on each, and it proved it can
+fail on a stock image before accepting ours.
+
+### 14.1 `Kernel panic - Attempted to kill init!` — the squashfs was missing its pseudo-directories
+
+The first boot panic'd in the initramfs ~2.8 s in:
+
+```
+mount: /root/dev: mount point does not exist.
+mount: /root/run: mount point does not exist.
+Kernel panic - not syncing: Attempted to kill init! exitcode=0x00000100
+```
+
+Forensics (with a `live-boot.debug` trace and the extracted `/init` source):
+
+- live-boot **was** working: the medium was found, `loop0` attached
+  (377,064 sectors), the squashfs mounted, and the tmpfs overlay mounted onto
+  `/root`, which contained a valid root (`run-init -n /root /sbin/init` dry-run
+  succeeded twice, `/root/etc/fstab` existed).
+- The initramfs tail then ran `mount -o move /dev` (and `/run`, `/sys`, `/proc`)
+  onto their `"${rootmnt}"` counterparts, and **every move failed with "mount
+  point does not exist"** — so `exec run-init ... <"${rootmnt}/dev/console"` could
+  not open `/dev/console` and `/init` died.
+- Root cause: `build/build-iso.sh` passed `-e boot dev proc sys run tmp var/tmp`
+  to `mksquashfs`, deliberately excluding the pseudo-directories from the image.
+  Debian live images ship them (as empty dirs, plus the static `/dev` nodes), and
+  the initramfs tail depends on them. **The blame was on the recipe, not the boot.
+  The boot was behaving correctly.**
+- Fix (commit `bdd660a`): the exclusion list is now `-e boot` only — `/dev` (with
+  its 8 device nodes incl. `console`), `/proc`, `/sys`, `/run`, `/tmp` are back
+  in the squashfs. The rescue rebuild reused the preserved `--keep-chroot` tree;
+  a full clean build runs the same script.
+
+### 14.2 Green on everything except the stock-Debian fingerprint — the image was still presenting as vanilla Debian
+
+The rebuilt daily image booted to `multi-user` + `graphical` and printed
+`OBSIDIAN-OS-READY` in 7.4 s under WHPX, all 5 required markers present — and the
+gate still failed on exactly one line of the whole serial log:
+
+```
+FORBIDDEN 'Debian GNU/Linux' present - image is vanilla Debian, not Obsidian
+```
+
+That line is systemd's welcome banner:
+
+```
+Welcome to ⓡ Debian GNU/Linux 13 (trixie)!
+```
+
+printed from `/etc/os-release` `PRETTY_NAME`, plus the getty banners from
+`/etc/issue`, `/etc/issue.net` and the post-login `/etc/motd`. The image had never
+been branded. **This is the evidence that the forbidden-marker check really
+fires:** it rejected our own un-branded image, and by the same mechanism it
+rejects any stock Debian live ISO.
+
+Fix (commit `bdd660a`): `overlays/common/etc/{os-release,issue,issue.net,motd}`
+now identify the system as **Obsidian OS** (`PRETTY_NAME="Obsidian OS (trixie)"`,
+`ID=obsidian`, `ID_LIKE=debian`). No invented URLs, no claim of being anything
+other than what it is — the base is declared honestly via `ID_LIKE`. systemd
+reads `os-release` as its welcome banner and getty reads `/etc/issue`, so both
+forbidden fingerprints are now impossible to produce from this image.
+
+### 14.3 Result: first green gate
+
+`tests/boottest-win.ps1 -Iso ... -Flavor daily` — the no-soft-mode strict gate —
+ends with **`boottest: PASS`**:
+
+```
+ok  OBSIDIAN-OS-MARKER v1
+ok  OBSIDIAN-OS-READY
+ok  OBSIDIAN-CHECK sysctl-overlay: present
+ok  OBSIDIAN-CHECK apparmor:
+ok  OBSIDIAN-CHECK firstboot:
+ok  flavor=daily
+boottest: PASS
+```
+
+- ISO: `obsidian-daily-trixie-amd64.iso`, sha256
+  `fb818a9379ddca9778a59d41b30718c6023454fc06e11197d648a7b6ef7e2212`.
+- The "proven to fail on stock Debian" requirement is met: the same gate was
+  demonstrated red against the un-branded build of the same pipeline (§14.2) and
+  its `forbidden` markers are the exact fingerprints the problematic `debian-live`
+  substitution would have produced (§1.1).
+- Remaining Phase 1 items are untouched by this: ghost (build + gate in flight),
+  the encrypted installer, Secure Boot/UKI and the hardened kernel are all still
+  open.
 
