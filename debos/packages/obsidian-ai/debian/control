@@ -10,5 +10,6 @@ Architecture: all
 Depends:          gtk4,
          libadwaita-1-0,
          ${misc:Depends}
-Recommends: ollama          # not in Debian trixie; bootstrap ships it (consent-gated)
+# ollama is not in Debian trixie; the consent-gated bootstrap provides it.
+Recommends: ollama
 Description: obsidian-ai DBus service, assistant sidebar, obsidianai CLI

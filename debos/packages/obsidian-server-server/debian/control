@@ -15,5 +15,6 @@ Depends:          caddy,
          nfs-kernel-server,
          libvirt-daemon-system,
          ${misc:Depends}
-Recommends: netdata            # not consistently in trixie main; add via bootstrap
+# netdata is not consistently in trixie main; add via bootstrap if desired.
+Recommends: netdata
 Description: Server roles template + serverctl (web/db/containers/nas/vm/proxy/ssh/dns/router)
