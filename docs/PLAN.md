@@ -200,7 +200,17 @@ Assistant documents it; an OSINT agent run completes with a report artifact.
 
 > The earlier claim that "offline ISO build is impossible / the moment the repo
 > lands on GitHub, CI produces the first ISO" was wrong on this host: a full
-> build and a hardware-accelerated boot test both run locally. Next ticks:
+> build and a hardware-accelerated boot test both run locally.
+>
+> **Stock-Debian negative control: DONE (2026-09-29).** The strict gate is
+> proven to FAIL on the real, mirror-hash-verified
+> `debian-live-13.7.0-amd64-standard.iso`: direct kernel+initrd boot with
+> `console=ttyS0` forced produced `Debian GNU/Linux 13 debian ttyS0` →
+> `debian login:` on serial (`FORBIDDEN 'Debian GNU/Linux'`) and no Obsidian
+> markers (GAP-REPORT §14.5, commit `9f7c993`). The green runs are not a
+> harness artifact.
+>
+> Next ticks:
 > 1.5/1.6/1.7 (installer, Secure Boot + UKI, hardened kernel — both flavors'
 > boot gates are now green)
 > → Phase 2 desktop (the largest remaining gap, see `docs/GAP-REPORT.md` §2).
