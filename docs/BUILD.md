@@ -333,6 +333,12 @@ a host restart the build is found dead mid-bootstrap with **no error markers**
 then relaunch with the same mirror override — preflight cleanup discards the
 dead run's tree automatically.
 
+**Relaunching also discards a finished ISO.** The launcher stages a fresh
+`/root/obsidian-os` on every run (`rm -rf` + re-tar), so an ISO sitting in the
+*old* tree's `build/out` is deleted the moment a new build starts. Never run
+`collect-iso.sh` concurrently with a relaunch: copy the ISO to the Windows side
+(and verify the hash) *before* launching the next build.
+
 ## 7. Reproducibility
 
 `SOURCE_DATE_EPOCH` defaults to a fixed value and the chroot's `/etc/machine-id`
