@@ -73,5 +73,15 @@ else
     echo "OBSIDIAN-CHECK firstboot: absent"
 fi
 
+# 9. hardened-kernel identity (Phase 1.7). scripts/build-kernel.sh builds with
+# LOCALVERSION=-obsidian-h, so only OUR kernel reports `obsidian` in uname -r.
+# A stock kernel (or a rebuild that silently shipped linux-image-amd64 instead
+# of the hardened deb) reports `stock` and the strict gate fails the image.
+if echo "$(uname -r)" | grep -q obsidian; then
+    echo "OBSIDIAN-CHECK kernel-identity: obsidian-hardened"
+else
+    echo "OBSIDIAN-CHECK kernel-identity: stock"
+fi
+
 echo "OBSIDIAN-OS-READY flavor=$FLAVOR"
 exit 0

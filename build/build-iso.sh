@@ -21,6 +21,9 @@
 #   build/build-iso.sh --flavor daily
 #   build/build-iso.sh --flavor ghost --suite trixie --arch amd64
 #   build/build-iso.sh --flavor daily --keep-chroot   # debug interactively
+#   build/build-iso.sh --flavor daily --kernel-deb build/kernel-out/obsidian-linux-image-*.deb
+#                       # Phase 1.7: boot the local hardened kernel instead of
+#                       # linux-image-amd64 (built by scripts/build-kernel.sh)
 set -euo pipefail
 
 # --------------------------------------------------------------------------- #
@@ -32,6 +35,10 @@ ARCH="amd64"
 MIRROR="https://deb.debian.org/debian"
 KEEP_CHROOT=0
 BUILD_JOBS="$(nproc 2>/dev/null || echo 2)"
+# Optional path to a hardened kernel .deb built by scripts/build-kernel.sh
+# (Phase 1.7). When supplied, linux-image-amd64 is dropped from the package set
+# and this deb is dpkg -i'd into the chroot instead.
+KERNEL_DEB="${KERNEL_DEB:-}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$REPO_ROOT/build"
@@ -86,6 +93,8 @@ while [ $# -gt 0 ]; do
     --mirror)      MIRROR="$2"; shift 2 ;;
     --keep-chroot) KEEP_CHROOT=1; shift ;;
     --jobs)        BUILD_JOBS="$2"; shift 2 ;;
+    --kernel-deb)  KERNEL_DEB="$2"; shift 2 ;;
+    --kernel-deb=*) KERNEL_DEB="${1#*=}"; shift ;;
     -h|--help)     usage 0 ;;
     *)             die "unknown argument: $1 (try --help)" ;;
   esac
@@ -157,6 +166,27 @@ PKGLIST="$WORK/packages.list"
 } | sed -e 's/#.*//' -e 's/[[:space:]]//g' -e '/^$/d' | sort -u > "$PKGLIST"
 INCLUDE="$(paste -sd, "$PKGLIST")"
 log "package set: $(wc -l < "$PKGLIST") packages for flavor '$FLAVOR'"
+
+# Phase 1.7: when a locally built hardened kernel .deb is supplied, the stock
+# linux-image-amd64 meta-package is dropped from the set and the deb is installed
+# directly into the chroot (step 3c). The deb built by scripts/build-kernel.sh
+# is a real linux-image-* package, so update-initramfs and /boot staging below
+# pick it up exactly as they would the stock kernel.
+if [ -n "$KERNEL_DEB" ]; then
+  if [ ! -f "$KERNEL_DEB" ]; then
+    die "--kernel-deb file not found: $KERNEL_DEB (build it with scripts/build-kernel.sh)"
+  fi
+  grep -q '^linux-image-amd64$' "$PKGLIST" \
+    || die "--kernel-deb was given but $FLAVOR.pkgs does not list linux-image-amd64; package set invariant broken"
+  sed -i '/^linux-image-amd64$/d' "$PKGLIST"
+  # a kernel image deb Depends on linux-base; pull it in the same transaction so
+  # the dpkg -i below has everything it needs without a second apt pass
+  if ! grep -q '^linux-base$' "$PKGLIST"; then
+    printf 'linux-base\n' >> "$PKGLIST"
+  fi
+  INCLUDE="$(paste -sd, "$PKGLIST")"
+  log "  hardened kernel: $(basename "$KERNEL_DEB") replaces linux-image-amd64"
+fi
 
 # --------------------------------------------------------------------------- #
 # 1b. hosts that lack open-file-description locks (WSL1)
@@ -321,6 +351,32 @@ mount --bind /dev "$CHROOT/dev"
 mount -t devpts devpts "$CHROOT/dev/pts" 2>/dev/null \
   || warn "could not mount devpts on /dev/pts (continuing)"
 mount -t tmpfs tmpfs "$CHROOT/run"
+
+# Phase 1.7: if a hardened kernel .deb was supplied, install it into the chroot
+# now. It is NOT part of the bootstrap's --include (it is a local artifact, not
+# a repo package), so this is the one explicit dpkg in the pipeline. The
+# postinst runs update-initramfs, so pseudo-filesystems must already be mounted
+# (they are, above). Failure here is a hard error: booting the stock kernel
+# because our deb silently failed would defeat the point of --kernel-deb.
+if [ -n "$KERNEL_DEB" ]; then
+  log "installing hardened kernel deb into the chroot"
+  # the chroot cannot see host paths; copy the deb inside first
+  cp -f "$KERNEL_DEB" "$CHROOT/tmp/obsidian-kernel.deb"
+  if ! chroot "$CHROOT" /usr/bin/dpkg -i /tmp/obsidian-kernel.deb >"$WORK/kernel-deb.log" 2>&1; then
+    # dpkg -i does not resolve dependencies like apt does; linux-base was pulled
+    # into the bootstrap set above, but be explicit and fail loudly if anything
+    # is still missing rather than ship a broken image
+    chroot "$CHROOT" /usr/bin/apt-get -f install -y -qq >>"$WORK/kernel-deb.log" 2>&1 \
+      || die "dpkg -i of kernel deb failed (see $WORK/kernel-deb.log)"
+  fi
+  rm -f "$CHROOT/tmp/obsidian-kernel.deb"
+  # Assert the resulting kernel is actually present and match its version for
+  # the later staging step's sort (a deb that "installed" but shipped no
+  # /boot/vmlinuz would stage nothing and boot dead).
+  KREL="$(chroot "$CHROOT" /usr/bin/ls -1 /boot/vmlinuz-* 2>/dev/null | head -1 | xargs -r basename)"
+  [ -n "$KREL" ] || die "kernel deb installed but no /boot/vmlinuz-* exists in the chroot"
+  log "  chroot kernel: $KREL"
+fi
 
 # --------------------------------------------------------------------------- #
 # 3. verify the package set actually landed on disk

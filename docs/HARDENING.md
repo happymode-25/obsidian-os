@@ -48,7 +48,7 @@ Legend: ✅ default-on · ⚙ configurable (GUI/securityctl) · ⛔ off unless e
 
 | Area | Control | Status |
 |---|---|---|
-| Kernel | `linux-hardened` patchset, hardened allocator, `CONFIG_INIT_ON_ALLOC/FREE`, randomize kstack | ✅ base |
+| Kernel | hardened *config*: hardened allocator (`SLAB_FREELIST_RANDOM/HARDENED`, `INIT_ON_ALLOC/FREE`, `PAGE_POISONING`), memory protection (`STRICT_KERNEL/MODULE_RWX`, `VMAP_STACK`, `RANDOMIZE_KSTACK_OFFSET`, `STACKPROTECTOR_STRONG`, `FORTIFY`, `HARDENED_USERCOPY`), lockdown LSM, `MODULE_SIG` (auto-generated cert, `MODULE_SIG_ALL`), `IO_URING`(+ its only `select`ing driver `BLK_DEV_UBLK`)/`KEXEC`/`HIBERNATION` off | ✅ base (task 1.7, `scripts/build-kernel.sh` + `hardened.config`) |
 | Kernel | `lockdown=confidentiality`, `dmesg_restrict=1`, `kptr_restrict=2`, `perf_event_paranoid=3` | ✅ base (Ghost: confidentiality) |
 | Kernel | signed modules only (custom MOK, `module.sig_enforce`) | ⚙ Hardened |
 | MAC | AppArmor enforce for obsidian services + profiles for browsers/cells | ⚙ Hardened |

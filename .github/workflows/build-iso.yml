@@ -63,11 +63,40 @@ jobs:
       - name: Phase 0 deliverable gate
         run: python3 scripts/validate-phase0.py
 
+  # ---- 1. build the hardened kernel (task 1.7) ------------------------------
+  # This is deliberately a separate job with a generous timeout: compiling the
+  # Debian trixie kernel from source takes far longer than the ISO build itself.
+  # The artifact is a linux-image .deb built by scripts/build-kernel.sh; the
+  # ISO job installs it into the chroot with --kernel-deb and the stock
+  # linux-image-amd64 is dropped from the package set. If this job fails, no
+  # ISO builds: a hardened kernel is now a hard gate of the image.
+  build-kernel:
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the hardened kernel (merge_config + bindeb-pkg)
+        run: |
+          sudo env DEBSRC_MIRROR=http://deb.debian.org/debian \
+            KBUILD_JOBS=4 \
+            scripts/build-kernel.sh 2>&1 | tail -60
+          # fail this step if the expected artifact did not appear
+          test -n "$(ls build/kernel-out/obsidian-linux-image-*.deb 2>/dev/null)"
+
+      - name: Upload kernel .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: obsidian-kernel-deb
+          path: build/kernel-out/
+          retention-days: 60
+
   # ---- 1. resolve the ISO build environment -------------------------------
   # Not cached on purpose: caching a debootstrap tree across runs is how you
   # ship last month's base with this month's overlays.
   build-iso:
-    needs: validate
+    needs: build-kernel
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
@@ -76,6 +105,12 @@ jobs:
         flavor: [daily, ghost]
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download the hardened kernel .deb
+        uses: actions/download-artifact@v4
+        with:
+          name: obsidian-kernel-deb
+          path: build/kernel-out/
 
       - name: Install build + boot-test dependencies
         run: |
@@ -94,10 +129,17 @@ jobs:
 
       - name: Build ISO (flavor=${{ matrix.flavor }})
         run: |
+          KERNEL_DEB="$(ls build/kernel-out/obsidian-linux-image-*.deb 2>/dev/null | head -1)"
+          # build-iso needs: build-kernel, so an empty glob means the artifact
+          # protocol broke. Building with the stock kernel would silently mask
+          # exactly the failure task 1.7 removes — fail loudly instead.
+          [ -n "$KERNEL_DEB" ] || { echo "FATAL: no kernel .deb from build-kernel job" >&2; exit 1; }
+          echo "kernel deb: $KERNEL_DEB"
           sudo ./build/build-iso.sh \
             --flavor ${{ matrix.flavor }} \
             --suite "$SUITE" \
-            --arch "$ARCH"
+            --arch "$ARCH" \
+            --kernel-deb "$KERNEL_DEB"
           mkdir -p output
           cp build/out/obsidian-${{ matrix.flavor }}-*.iso output/
           ls -la output/

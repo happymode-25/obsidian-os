@@ -80,7 +80,7 @@ Goal: a bootable ISO that passes a strict boot test, regardless of desktop polis
 | 1.4 | Ghost flavor boots | `obsidian-ghost-trixie-amd64.iso` | ✅ **done (2026-09-29)** — strict gate **PASS** under WHPX QEMU: `OBSIDIAN-OS-READY flavor=ghost` in 7.8 s, all 5 required markers, `ghost-amnesic: set`, `kernel-lockdown: 1` attested; sha256 `baf82be9…` |
 | 1.5 | Encrypted install path | `debos/installer/` (calamares-flavored config) | ⬜ not started |
 | 1.6 | Secure Boot + UKI + TPM2 | `scripts/boot-keys.sh` exists; **not wired into the image** | ⬜ not started |
-| 1.7 | Hardened kernel in the image | `scripts/build-kernel.sh` exists; **orphaned** | ⬜ not started — image boots stock Debian kernel |
+| 1.7 | Hardened kernel in the image | `scripts/build-kernel.sh` + `build/kernel/base-config-amd64.config` (shipped trixie config) + `hardened.config` fragment | 🔧 **in progress (2026-09-29)** — builder rewritten: merges the exact shipped Debian config with the fragment, hard-fails if any hardening option is missing, produces `obsidian-linux-image-*.deb` (`LOCALVERSION=-obsidian-h`). `build-iso.sh --kernel-deb` drops `linux-image-amd64` and installs the deb in the chroot. CI `build-kernel` job wired. Gate (**`OBSIDIAN-CHECK kernel-identity: obsidian-hardened`**) staged and proven-able in CHECK_ONLY; required-marker flip lands with the first green hardened ISO |
 
 **Gate:** the `daily` and `ghost` matrix jobs produce ISOs, and the boot test
 asserts on `OBSIDIAN-OS-MARKER` / `OBSIDIAN-OS-READY` plus per-subsystem
